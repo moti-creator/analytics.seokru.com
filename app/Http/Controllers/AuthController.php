@@ -23,17 +23,31 @@ class AuthController extends Controller
     {
         $g = Socialite::driver('google')->user();
 
+        $existing = Connection::where('google_user_id', $g->getId())->first();
+
         $conn = Connection::updateOrCreate(
             ['google_user_id' => $g->getId()],
             [
                 'email' => $g->getEmail(),
                 'access_token' => $g->token,
-                'refresh_token' => $g->refreshToken ?? null,
+                // Keep previous refresh token if Google didn't return a new one.
+                'refresh_token' => $g->refreshToken ?? ($existing->refresh_token ?? null),
                 'expires_at' => now()->addSeconds($g->expiresIn ?? 3600),
             ]
         );
 
         session(['connection_id' => $conn->id]);
+
+        // Route back based on intent stored before OAuth.
+        $type = session('report_type');
+        if ($type === 'ask') return redirect()->route('ask.form');
         return redirect()->route('connect');
+    }
+
+    public function logout(Request $r)
+    {
+        $r->session()->forget('connection_id');
+        $r->session()->forget('report_type');
+        return redirect('/');
     }
 }

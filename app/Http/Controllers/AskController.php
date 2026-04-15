@@ -50,6 +50,6 @@ class AskController extends Controller
             'narrative' => $result['narrative'],
         ]);
 
-        return redirect()->route('report.show', $report->id);
+        return redirect()->route('report.show', $report);
     }
 }

@@ -13,13 +13,23 @@ class ReportController extends Controller
 {
     public function landing()
     {
-        return view('landing', ['types' => ReportBuilder::TYPES]);
+        return view('landing', [
+            'types' => ReportBuilder::TYPES,
+            'connection_id' => session('connection_id'),
+        ]);
     }
 
     public function start(string $type)
     {
         abort_unless($type === 'ask' || isset(ReportBuilder::TYPES[$type]), 404);
         session(['report_type' => $type]);
+
+        // Already connected? skip OAuth.
+        if (session('connection_id') && Connection::find(session('connection_id'))) {
+            return $type === 'ask'
+                ? redirect()->route('ask.form')
+                : redirect()->route('connect');
+        }
         return redirect('/auth/google');
     }
 
@@ -66,19 +76,32 @@ class ReportController extends Controller
             'narrative' => $built['narrative'],
         ]);
 
-        return redirect()->route('report.show', $report->id);
+        return redirect()->route('report.show', $report);
     }
 
-    public function show($id)
+    public function show(Report $report)
     {
-        $report = Report::with('connection')->findOrFail($id);
+        $this->authorize($report);
+        $report->load('connection');
         return view('report', compact('report'));
     }
 
-    public function pdf($id)
+    public function pdf(Report $report)
     {
-        $report = Report::with('connection')->findOrFail($id);
+        $this->authorize($report);
+        $report->load('connection');
         $pdf = Pdf::loadView('report', compact('report'));
-        return $pdf->download("{$report->type}-{$report->id}.pdf");
+        return $pdf->download("{$report->type}-{$report->slug}.pdf");
+    }
+
+    /**
+     * Owner-only access. Session connection_id must match report.connection_id.
+     */
+    protected function authorize(Report $report): void
+    {
+        $sid = session('connection_id');
+        if (!$sid || (int)$sid !== (int)$report->connection_id) {
+            abort(403, 'You must be signed in with the Google account that created this report.');
+        }
     }
 }
