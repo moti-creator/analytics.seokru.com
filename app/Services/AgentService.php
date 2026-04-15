@@ -36,12 +36,19 @@ class AgentService
 
                 $toolCalls[] = ['tool' => $fn, 'args' => $args, 'result_summary' => $this->summarize($result)];
 
-                // Append model's call + function response to history
-                $history[] = ['role' => 'model', 'parts' => [$part]];
+                // Append model's call + function response to history.
+                // Force args to object so empty {} doesn't become [] (Gemini rejects list).
+                $callPart = [
+                    'functionCall' => [
+                        'name' => $fn,
+                        'args' => (object) $args,
+                    ],
+                ];
+                $history[] = ['role' => 'model', 'parts' => [$callPart]];
                 $history[] = ['role' => 'user', 'parts' => [[
                     'functionResponse' => [
                         'name' => $fn,
-                        'response' => ['result' => $result],
+                        'response' => (object) ['result' => $result],
                     ]
                 ]]];
                 continue;
