@@ -18,7 +18,7 @@ class ReportController extends Controller
 
     public function start(string $type)
     {
-        abort_unless(isset(ReportBuilder::TYPES[$type]), 404);
+        abort_unless($type === 'ask' || isset(ReportBuilder::TYPES[$type]), 404);
         session(['report_type' => $type]);
         return redirect('/auth/google');
     }
@@ -28,6 +28,10 @@ class ReportController extends Controller
         $conn = Connection::find(session('connection_id'));
         if (!$conn) return redirect('/');
         $type = session('report_type', 'anomaly');
+
+        if ($type === 'ask') {
+            return redirect()->route('ask.form');
+        }
 
         $g = new GoogleService($conn);
         $properties = $g->listGa4Properties();

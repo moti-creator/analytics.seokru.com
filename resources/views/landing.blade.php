@@ -18,9 +18,15 @@ h1{font-size:2.2rem;margin-bottom:.2em}
 </head>
 <body>
 <h1>Answers GA4 won't give you.</h1>
-<p class="sub">Pick a report. Connect Google. Get the answer in 60 seconds — in plain English.</p>
+<p class="sub">Pick a preset report, or ask a custom question. Connect Google. Get the answer in 60 seconds — in plain English.</p>
 
 <div class="grid">
+<a class="card" style="border-color:#1a73e8;background:#f5f8ff" href="{{ route('start', 'ask') }}">
+<h3>Ask anything</h3>
+<p>Describe any report you want in plain English. Our agent fetches the data and writes the answer.</p>
+<span class="badge">GA4 + GSC · Agentic</span>
+</a>
+
 <a class="card" href="{{ route('start', 'content_decay') }}">
 <h3>Content Decay</h3>
 <p>Which pages are losing traffic and by how much. Built from GA4 in one click.</p>
