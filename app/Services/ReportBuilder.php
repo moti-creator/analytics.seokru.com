@@ -23,6 +23,20 @@ class ReportBuilder
 
     public function __construct(public Connection $conn) {}
 
+    /**
+     * Check which data sources are available vs needed.
+     */
+    protected function sourceCheck(string $type): array
+    {
+        $needs = self::TYPES[$type]['needs'] ?? [];
+        $hasGa4 = !empty($this->conn->ga4_property_id);
+        $hasGsc = !empty($this->conn->gsc_site_url);
+        $missing = [];
+        if (in_array('ga4', $needs) && !$hasGa4) $missing[] = 'GA4';
+        if (in_array('gsc', $needs) && !$hasGsc) $missing[] = 'Search Console';
+        return ['missing' => $missing, 'partial' => count($missing) > 0 && count($missing) < count($needs)];
+    }
+
     public function build(string $type): array
     {
         // Cache key: same user + same report type + same day = same result.
@@ -30,6 +44,7 @@ class ReportBuilder
         $cacheKey = "report:{$this->conn->id}:{$type}:" . now()->toDateString();
 
         return Cache::remember($cacheKey, 60 * 60 * 12, function () use ($type) {
+            $check = $this->sourceCheck($type);
             $g = new GoogleService($this->conn);
             $data = match($type) {
                 'content_decay' => $this->contentDecay($g),
@@ -42,6 +57,14 @@ class ReportBuilder
                 'cannibalization' => $this->cannibalization($g),
                 'brand_rescue' => $this->brandRescue($g),
             };
+            // Add source availability info so the LLM knows what data it has
+            if ($check['missing']) {
+                $data['_note'] = 'Missing data source(s): ' . implode(', ', $check['missing']) . '. Only analyze data that is present. Do not reference missing data.';
+            }
+
+            // Generate charts and inject into data for LLM to embed
+            $this->injectCharts($type, $data);
+
             $narrative = (new GeminiService())->raw($this->prompt($type, $data));
             return [
                 'type' => $type,
@@ -131,10 +154,12 @@ class ReportBuilder
         $prevEnd = now()->subDays(8)->toDateString();
         $prevStart = now()->subDays(14)->toDateString();
 
-        $ga = $g->fetchGa4($this->conn->ga4_property_id, $start, $end);
-        $gaPrev = $g->fetchGa4($this->conn->ga4_property_id, $prevStart, $prevEnd);
-        $gsc = $g->fetchGsc($this->conn->gsc_site_url, $start, $end);
-        $gscPrev = $g->fetchGsc($this->conn->gsc_site_url, $prevStart, $prevEnd);
+        $hasGa4 = !empty($this->conn->ga4_property_id);
+        $hasGsc = !empty($this->conn->gsc_site_url);
+        $ga = $hasGa4 ? $g->fetchGa4($this->conn->ga4_property_id, $start, $end) : [];
+        $gaPrev = $hasGa4 ? $g->fetchGa4($this->conn->ga4_property_id, $prevStart, $prevEnd) : [];
+        $gsc = $hasGsc ? $g->fetchGsc($this->conn->gsc_site_url, $start, $end) : [];
+        $gscPrev = $hasGsc ? $g->fetchGsc($this->conn->gsc_site_url, $prevStart, $prevEnd) : [];
 
         // --- Pre-compute GA4 totals with deltas (so LLM can't invent math) ---
         // Metric order matches GoogleService::fetchGa4(): sessions, totalUsers, screenPageViews, conversions, engagementRate
@@ -598,10 +623,123 @@ class ReportBuilder
         return $out;
     }
 
+    /**
+     * Generate a QuickChart.io <img> tag for embedding in LLM narrative.
+     */
+    protected function quickChart(string $chartType, array $labels, array $datasets, string $title = ''): string
+    {
+        $config = [
+            'type' => $chartType,
+            'data' => ['labels' => $labels, 'datasets' => $datasets],
+            'options' => [
+                'title' => ['display' => (bool)$title, 'text' => $title],
+                'plugins' => ['legend' => ['display' => count($datasets) > 1]],
+            ],
+        ];
+        $url = 'https://quickchart.io/chart?w=600&h=320&bkg=white&c=' . rawurlencode(json_encode($config));
+        return '<img src="' . $url . '" alt="' . e($title ?: 'chart') . '" style="max-width:100%;height:auto;margin:1em 0">';
+    }
+
+    /**
+     * Build charts for preset report types and inject as _charts in data.
+     */
+    protected function injectCharts(string $type, array &$data): void
+    {
+        $charts = [];
+        try {
+            switch ($type) {
+                case 'content_decay':
+                    $pages = array_slice($data['decayed_pages'] ?? [], 0, 8);
+                    if ($pages) {
+                        $labels = array_map(fn($p) => substr($p['page'], 0, 25), $pages);
+                        $charts[] = $this->quickChart('bar', $labels, [
+                            ['label' => 'Previous', 'data' => array_column($pages, 'prev_sessions'), 'backgroundColor' => '#93c5fd'],
+                            ['label' => 'Current', 'data' => array_column($pages, 'sessions'), 'backgroundColor' => '#f87171'],
+                        ], 'Content Decay — Sessions Comparison');
+                    }
+                    break;
+
+                case 'anomaly':
+                    $swings = $data['big_swings'] ?? [];
+                    if ($swings) {
+                        $labels = array_map(fn($s) => $s['metric'], $swings);
+                        $charts[] = $this->quickChart('bar', $labels, [
+                            ['label' => '% Change', 'data' => array_column($swings, 'pct_change'), 'backgroundColor' => array_map(
+                                fn($s) => ($s['pct_change'] ?? 0) >= 0 ? '#4ade80' : '#f87171', $swings
+                            )],
+                        ], 'Week-over-Week Changes (>20%)');
+                    }
+                    break;
+
+                case 'brand_split':
+                    $b = $data['brand']['clicks'] ?? 0;
+                    $nb = $data['non_brand']['clicks'] ?? 0;
+                    if ($b || $nb) {
+                        $charts[] = $this->quickChart('doughnut',
+                            ['Brand', 'Non-Brand'],
+                            [['data' => [$b, $nb], 'backgroundColor' => ['#60a5fa', '#f97316']]],
+                            'Brand vs Non-Brand Clicks'
+                        );
+                    }
+                    break;
+
+                case 'brand_rescue':
+                    $bc = $data['brand']['clicks_current'] ?? 0;
+                    $bp = $data['brand']['clicks_previous'] ?? 0;
+                    $nc = $data['non_brand']['clicks_current'] ?? 0;
+                    $np = $data['non_brand']['clicks_previous'] ?? 0;
+                    if ($bc || $nc) {
+                        $charts[] = $this->quickChart('bar',
+                            ['Brand', 'Non-Brand'],
+                            [
+                                ['label' => 'Previous', 'data' => [$bp, $np], 'backgroundColor' => '#93c5fd'],
+                                ['label' => 'Current', 'data' => [$bc, $nc], 'backgroundColor' => '#3b82f6'],
+                            ],
+                            'Brand vs Non-Brand Clicks (Period Comparison)'
+                        );
+                    }
+                    break;
+
+                case 'striking_distance':
+                    $opps = array_slice($data['opportunities'] ?? [], 0, 10);
+                    if ($opps) {
+                        $labels = array_map(fn($o) => substr($o['query'], 0, 20), $opps);
+                        $charts[] = $this->quickChart('bar', $labels, [
+                            ['label' => 'Impressions', 'data' => array_column($opps, 'impressions'), 'backgroundColor' => '#60a5fa'],
+                        ], 'Top Striking-Distance Keywords by Impressions');
+                    }
+                    break;
+
+                case 'silent_winners':
+                    $sw = array_slice($data['silent_winners'] ?? [], 0, 8);
+                    if ($sw) {
+                        $labels = array_map(fn($s) => substr($s['query'], 0, 20), $sw);
+                        $charts[] = $this->quickChart('bar', $labels, [
+                            ['label' => 'Impressions', 'data' => array_column($sw, 'impressions'), 'backgroundColor' => '#a78bfa'],
+                            ['label' => 'Clicks', 'data' => array_column($sw, 'clicks'), 'backgroundColor' => '#f87171'],
+                        ], 'Silent Winners — Impressions vs Clicks');
+                    }
+                    break;
+            }
+        } catch (\Throwable $e) {
+            // Don't let chart failures break report generation
+        }
+
+        if ($charts) {
+            $data['_charts'] = $charts;
+        }
+    }
+
     protected function prompt(string $type, array $data): string
     {
         $base = "You are a senior SEO/analytics consultant. Write concise, plain-English HTML (use <h2>, <p>, <ul>, <table> only). No markdown. Be specific with numbers.\n\n"
             . "CRITICAL: All percentage changes and deltas in the Data below are pre-computed. USE THEM EXACTLY. Do not recompute, round differently, or invent numbers. If pct_change is null, say 'no prior data'. If a field is missing, say so — do not guess.\n\n"
+            . "TABLE RULES:\n"
+            . "- When showing comparison tables, use human-readable date range headers like 'Jan 19 - Apr 16 (Current)' and 'Oct 19 - Jan 16 (Previous)' instead of 'sessions' and 'prev_sessions'. The period dates are in the data.\n"
+            . "- Page paths should be clean: /page-name not \\/page-name.\n"
+            . "- Include the comparison period at the top of the report so readers know the timeframe.\n"
+            . "- If a '_note' field exists in the data, respect it (it indicates missing data sources).\n"
+            . "- If a '_charts' array exists, embed each <img> tag in the report AFTER the relevant section heading. These are pre-built chart images — paste them exactly as-is.\n\n"
             . "Data:\n" . json_encode($data, JSON_PRETTY_PRINT) . "\n\n";
 
         return $base . match($type) {

@@ -25,12 +25,12 @@ button.primary:disabled{background:#888;cursor:wait}
 
 .section{background:#fafafa;border:1px solid #eee;border-radius:8px;padding:14px 18px;margin-bottom:1.2em}
 .section h3{margin:0 0 .6em;font-size:.95rem;color:#555;text-transform:uppercase;letter-spacing:.05em}
-.recent-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee;gap:12px}
+.recent-item{display:grid;grid-template-columns:1fr auto auto;align-items:center;padding:10px 0;border-bottom:1px solid #eee;gap:10px}
 .recent-item:last-child{border-bottom:0}
-.recent-item a{color:#1a73e8;text-decoration:none;flex:1;font-size:.92rem}
+.recent-item a{color:#1a73e8;text-decoration:none;font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .recent-item a:hover{text-decoration:underline}
 .recent-item .date{color:#999;font-size:.8rem;white-space:nowrap}
-.recent-item .reuse{color:#666;font-size:.82rem;cursor:pointer;border:1px solid #ddd;padding:3px 10px;border-radius:4px;background:#fff}
+.recent-item .reuse{color:#666;font-size:.82rem;cursor:pointer;border:1px solid #ddd;padding:4px 12px;border-radius:4px;background:#fff;white-space:nowrap}
 .recent-item .reuse:hover{border-color:#1a73e8;color:#1a73e8}
 
 .save-row{display:flex;gap:8px;margin-top:10px}

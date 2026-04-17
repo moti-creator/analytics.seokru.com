@@ -17,6 +17,11 @@ Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 Route::get('/connect', [ReportController::class, 'connectForm'])->name('connect');
 Route::post('/generate', [ReportController::class, 'generate'])->name('generate');
 
+// Dashboard (property first, then pick report)
+Route::get('/dashboard', [ReportController::class, 'dashboard'])->name('dashboard');
+Route::post('/dashboard/property', [ReportController::class, 'updateProperty'])->name('dashboard.property');
+Route::get('/generate/{type}', [ReportController::class, 'generateDirect'])->name('generate.direct');
+
 Route::get('/ask', [AskController::class, 'form'])->name('ask.form');
 Route::post('/ask', [AskController::class, 'run'])->name('ask.run');
 Route::post('/ask/saved', [AskController::class, 'saveQuery'])->name('ask.save');

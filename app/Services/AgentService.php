@@ -345,6 +345,16 @@ GA4 metrics: sessions, totalUsers, newUsers, screenPageViews, conversions, engag
 
 GSC dimensions: query, page, device, country, date, searchAppearance.
 GSC metrics (auto-returned): clicks, impressions, ctr, position.
+
+IMPORTANT: You can ONLY access GA4 and Search Console data. You CANNOT access:
+- PageSpeed / Core Web Vitals scores
+- Backlink data (Ahrefs, Moz, etc.)
+- Google Ads / paid campaign data
+- Heatmaps / session recordings
+- Social media analytics
+- Revenue / e-commerce data unless tracked in GA4 conversions
+
+If the user asks for data you cannot fetch, clearly explain what you CAN do and suggest a rephrased question. Example: "I can't check PageSpeed scores, but I can show you which pages have the highest bounce rate — that often correlates with slow pages."
 PROMPT;
     }
 

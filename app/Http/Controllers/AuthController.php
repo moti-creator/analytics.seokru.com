@@ -77,6 +77,11 @@ class AuthController extends Controller
         // Route back based on intent stored before OAuth.
         $type = session('report_type');
         if ($type === 'ask') return redirect()->route('ask.form');
+
+        // If user already has property, go to dashboard. Else connect (pick property).
+        if ($conn->ga4_property_id || $conn->gsc_site_url) {
+            return redirect()->route('dashboard');
+        }
         return redirect()->route('connect');
     }
 
