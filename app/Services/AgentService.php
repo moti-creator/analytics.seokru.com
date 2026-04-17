@@ -7,12 +7,17 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Agentic report builder — uses Gemini function-calling to let the LLM
- * decide which GA4 / GSC queries to run, then narrate the result.
+ * Agentic report builder — uses function-calling LLM (Gemini or Groq/Llama)
+ * to decide which GA4/GSC queries to run, then narrate the result.
+ *
+ * Tries Gemini first. On 429 rate limit, switches to Groq for the entire run.
  */
 class AgentService
 {
     protected const MAX_ITERATIONS = 8;
+
+    /** @var 'gemini'|'groq' */
+    protected string $backend = 'gemini';
 
     public function __construct(public Connection $conn) {}
 
@@ -20,54 +25,69 @@ class AgentService
     {
         $google = new GoogleService($this->conn);
         $toolCalls = [];
-        $history = [
-            ['role' => 'user', 'parts' => [['text' => $this->systemPrompt() . "\n\nUser request:\n" . $userPrompt]]],
+        $systemPrompt = $this->systemPrompt();
+
+        // Initialize history in backend-native format
+        $geminiHistory = [
+            ['role' => 'user', 'parts' => [['text' => $systemPrompt . "\n\nUser request:\n" . $userPrompt]]],
+        ];
+        $groqHistory = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => $userPrompt],
         ];
 
         for ($i = 0; $i < self::MAX_ITERATIONS; $i++) {
-            $resp = $this->gemini($history);
-            $part = $resp['candidates'][0]['content']['parts'][0] ?? [];
+            $parsed = $this->callLlm($geminiHistory, $groqHistory);
+
+            // Rate limit triggered switch — retry this iteration
+            if ($parsed['switched'] ?? false) {
+                $parsed = $this->callLlm($geminiHistory, $groqHistory);
+            }
 
             // Tool call requested
-            if (isset($part['functionCall'])) {
-                $fn = $part['functionCall']['name'];
-                $args = $part['functionCall']['args'] ?? [];
+            if ($parsed['type'] === 'tool_call') {
+                $fn = $parsed['name'];
+                $args = $parsed['args'];
                 $result = $this->executeTool($fn, $args, $google);
 
                 $toolCalls[] = ['tool' => $fn, 'args' => $args, 'result_summary' => $this->summarize($result)];
+                $resultJson = json_encode($result);
 
-                // Append model's call + function response to history.
-                // Force args to object so empty {} doesn't become [] (Gemini rejects list).
-                $callPart = [
-                    'functionCall' => [
-                        'name' => $fn,
-                        'args' => (object) $args,
-                    ],
-                ];
-                $history[] = ['role' => 'model', 'parts' => [$callPart]];
-                $history[] = ['role' => 'user', 'parts' => [[
+                // Append to Gemini history
+                $geminiHistory[] = ['role' => 'model', 'parts' => [[
+                    'functionCall' => ['name' => $fn, 'args' => (object) $args],
+                ]]];
+                $geminiHistory[] = ['role' => 'user', 'parts' => [[
                     'functionResponse' => [
                         'name' => $fn,
                         'response' => (object) ['result' => $result],
-                    ]
+                    ],
                 ]]];
+
+                // Append to Groq history
+                $toolCallId = 'call_' . $i . '_' . $fn;
+                $groqHistory[] = ['role' => 'assistant', 'tool_calls' => [[
+                    'id' => $toolCallId,
+                    'type' => 'function',
+                    'function' => ['name' => $fn, 'arguments' => json_encode($args)],
+                ]]];
+                $groqHistory[] = [
+                    'role' => 'tool',
+                    'tool_call_id' => $toolCallId,
+                    'content' => $resultJson,
+                ];
                 continue;
             }
 
             // Final text response
-            $text = $part['text'] ?? '';
+            $text = $parsed['text'] ?? '';
             if (trim(strip_tags($text)) === '') {
                 Log::warning('Agent empty narrative', [
                     'prompt' => $userPrompt,
-                    'raw_response' => $resp,
+                    'backend' => $this->backend,
                     'tool_calls' => $toolCalls,
                 ]);
-                $finish = $resp['candidates'][0]['finishReason'] ?? 'unknown';
-                $safety = $resp['candidates'][0]['safetyRatings'] ?? [];
-                $narrative = '<p class="error-narrative">Agent returned no narrative (finishReason: ' . e($finish) . ').</p>';
-                if ($safety) {
-                    $narrative .= '<p><strong>Safety:</strong> <code>' . e(json_encode($safety)) . '</code></p>';
-                }
+                $narrative = '<p class="error-narrative">Agent returned no narrative (backend: ' . $this->backend . ').</p>';
                 $narrative .= '<p>You can retry — sometimes the model stalls mid-stream.</p>';
                 return [
                     'narrative' => $narrative,
@@ -80,39 +100,95 @@ class AgentService
                 'narrative' => $text,
                 'tool_calls' => $toolCalls,
                 'iterations' => $i + 1,
+                'backend' => $this->backend,
             ];
         }
 
         return [
-            'narrative' => '<p class="error-narrative">Agent exceeded max iterations without finalizing. Tool call log below.</p>',
+            'narrative' => '<p class="error-narrative">Agent exceeded max iterations without finalizing.</p>',
             'tool_calls' => $toolCalls,
             'iterations' => self::MAX_ITERATIONS,
             'error' => true,
         ];
     }
 
-    protected function gemini(array $history): array
+    /**
+     * Unified LLM call. Returns normalized result:
+     * ['type' => 'tool_call', 'name' => ..., 'args' => [...]]
+     * ['type' => 'text', 'text' => '...']
+     * ['switched' => true] if backend changed mid-call (caller should retry)
+     */
+    protected function callLlm(array $geminiHistory, array $groqHistory): array
+    {
+        if ($this->backend === 'groq') {
+            return $this->callGroq($groqHistory);
+        }
+        return $this->callGemini($geminiHistory, $groqHistory);
+    }
+
+    protected function callGemini(array $geminiHistory, array $groqHistory): array
     {
         $model = config('services.gemini.model');
         $key = config('services.gemini.key');
 
-        $body = [
-            'contents' => $history,
-            'tools' => [['functionDeclarations' => $this->toolDefs()]],
-            'generationConfig' => ['temperature' => 0.3],
-        ];
-
         $resp = Http::timeout(90)->post(
             "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$key}",
-            $body
+            [
+                'contents' => $geminiHistory,
+                'tools' => [['functionDeclarations' => $this->toolDefs()]],
+                'generationConfig' => ['temperature' => 0.3],
+            ]
         );
+
+        if ($resp->status() === 429) {
+            Log::info('Agent: Gemini 429 → switching to Groq');
+            $groq = new GroqService();
+            if ($groq->available()) {
+                $this->backend = 'groq';
+                return ['switched' => true];
+            }
+            return ['type' => 'text', 'text' => '<p class="error-narrative">Rate limit hit. No fallback LLM configured.</p>'];
+        }
 
         if (!$resp->ok()) {
             Log::warning('Gemini error', ['body' => $resp->body()]);
-            return ['candidates' => [['content' => ['parts' => [['text' => '<p>LLM error: ' . e($resp->body()) . '</p>']]]]]];
+            return ['type' => 'text', 'text' => '<p>LLM error: ' . e($resp->body()) . '</p>'];
         }
-        return $resp->json();
+
+        $json = $resp->json();
+        $part = $json['candidates'][0]['content']['parts'][0] ?? [];
+
+        if (isset($part['functionCall'])) {
+            return [
+                'type' => 'tool_call',
+                'name' => $part['functionCall']['name'],
+                'args' => $part['functionCall']['args'] ?? [],
+            ];
+        }
+        return ['type' => 'text', 'text' => $part['text'] ?? ''];
     }
+
+    protected function callGroq(array $groqHistory): array
+    {
+        $groq = new GroqService();
+        $tools = GroqService::convertToolDefs($this->toolDefs());
+        $resp = $groq->chat($groqHistory, $tools);
+
+        $msg = $resp['choices'][0]['message'] ?? [];
+
+        if (!empty($msg['tool_calls'])) {
+            $tc = $msg['tool_calls'][0];
+            $args = json_decode($tc['function']['arguments'] ?? '{}', true) ?: [];
+            return [
+                'type' => 'tool_call',
+                'name' => $tc['function']['name'],
+                'args' => $args,
+            ];
+        }
+        return ['type' => 'text', 'text' => $msg['content'] ?? ''];
+    }
+
+    // --- Tool execution (unchanged) ---
 
     protected function executeTool(string $fn, array $args, GoogleService $google): array
     {
@@ -200,10 +276,6 @@ class AgentService
         return ['headers' => $headers, 'rows' => $rows, 'row_count' => count($rows)];
     }
 
-    /**
-     * Build a QuickChart.io URL for the agent to embed as <img src="...">.
-     * Accepts type (bar|line|pie|doughnut), labels[], datasets[{label,data}], title.
-     */
     protected function makeChart(array $args): array
     {
         $type = $args['type'] ?? 'bar';

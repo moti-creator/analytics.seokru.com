@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Connection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class ReportBuilder
@@ -24,25 +25,31 @@ class ReportBuilder
 
     public function build(string $type): array
     {
-        $g = new GoogleService($this->conn);
-        $data = match($type) {
-            'content_decay' => $this->contentDecay($g),
-            'striking_distance' => $this->strikingDistance($g),
-            'conversion_leak' => $this->conversionLeak($g),
-            'anomaly' => $this->anomaly($g),
-            'brand_split' => $this->brandSplit($g),
-            'silent_winners' => $this->silentWinners($g),
-            'converting_queries' => $this->convertingQueries($g),
-            'cannibalization' => $this->cannibalization($g),
-            'brand_rescue' => $this->brandRescue($g),
-        };
-        $narrative = (new GeminiService())->raw($this->prompt($type, $data));
-        return [
-            'type' => $type,
-            'title' => self::TYPES[$type]['title'],
-            'metrics' => $data,
-            'narrative' => $narrative,
-        ];
+        // Cache key: same user + same report type + same day = same result.
+        // Saves Gemini/Groq calls. Cache for 12 hours.
+        $cacheKey = "report:{$this->conn->id}:{$type}:" . now()->toDateString();
+
+        return Cache::remember($cacheKey, 60 * 60 * 12, function () use ($type) {
+            $g = new GoogleService($this->conn);
+            $data = match($type) {
+                'content_decay' => $this->contentDecay($g),
+                'striking_distance' => $this->strikingDistance($g),
+                'conversion_leak' => $this->conversionLeak($g),
+                'anomaly' => $this->anomaly($g),
+                'brand_split' => $this->brandSplit($g),
+                'silent_winners' => $this->silentWinners($g),
+                'converting_queries' => $this->convertingQueries($g),
+                'cannibalization' => $this->cannibalization($g),
+                'brand_rescue' => $this->brandRescue($g),
+            };
+            $narrative = (new GeminiService())->raw($this->prompt($type, $data));
+            return [
+                'type' => $type,
+                'title' => self::TYPES[$type]['title'],
+                'metrics' => $data,
+                'narrative' => $narrative,
+            ];
+        });
     }
 
     protected function contentDecay(GoogleService $g): array
