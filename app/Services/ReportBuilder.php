@@ -9,7 +9,8 @@ use Illuminate\Support\Facades\Http;
 class ReportBuilder
 {
     public const TYPES = [
-        'keyword_rankings' => ['title' => 'Keyword Rankings Pivot', 'needs' => ['gsc']],
+        'keyword_rankings' => ['title' => 'Keyword Rankings Pivot (Web)', 'needs' => ['gsc']],
+        'keyword_rankings_news' => ['title' => 'Keyword Rankings Pivot (News)', 'needs' => ['gsc']],
         'content_decay' => ['title' => 'Content Decay Report', 'needs' => ['ga4']],
         'striking_distance' => ['title' => 'Striking-Distance Keywords', 'needs' => ['gsc']],
         'conversion_leak' => ['title' => 'Conversion Leak Finder', 'needs' => ['ga4']],
@@ -23,7 +24,7 @@ class ReportBuilder
     ];
 
     /** Types that render their own narrative and skip the LLM pipeline. */
-    protected const PREBUILT_TYPES = ['keyword_rankings'];
+    protected const PREBUILT_TYPES = ['keyword_rankings', 'keyword_rankings_news'];
 
     public function __construct(public Connection $conn) {}
 
@@ -771,29 +772,33 @@ class ReportBuilder
     protected function buildPrebuilt(string $type, GoogleService $g): array
     {
         return match($type) {
-            'keyword_rankings' => $this->keywordRankings($g),
+            'keyword_rankings' => $this->keywordRankings($g, 'web'),
+            'keyword_rankings_news' => $this->keywordRankings($g, 'news'),
         };
     }
 
     /**
      * Query × month pivot of GSC positions. Heatmap-styled HTML narrative.
+     * $searchType: 'web' (organic blue links) or 'news' (Top Stories / News tab).
      */
-    protected function keywordRankings(GoogleService $g): array
+    protected function keywordRankings(GoogleService $g, string $searchType = 'web'): array
     {
         $months = 13;
-        $minImps = 10;
+        $minImps = $searchType === 'news' ? 1 : 10; // news volumes are lower — loosen threshold
         $topN = 50;
         $end = now()->subDay()->toDateString();
         $start = now()->subMonths($months - 1)->startOfMonth()->toDateString();
 
-        $pivot = $g->fetchGscQueryPivot($this->conn->gsc_site_url, $start, $end, $minImps, $topN);
-        $narrative = $this->renderKeywordRankingsHtml($pivot, $start, $end, $minImps, $topN);
+        $pivot = $g->fetchGscQueryPivot($this->conn->gsc_site_url, $start, $end, $minImps, $topN, $searchType);
+        $narrative = $this->renderKeywordRankingsHtml($pivot, $start, $end, $minImps, $topN, $searchType);
 
+        $key = $searchType === 'news' ? 'keyword_rankings_news' : 'keyword_rankings';
         return [
-            'type' => 'keyword_rankings',
-            'title' => self::TYPES['keyword_rankings']['title'],
+            'type' => $key,
+            'title' => self::TYPES[$key]['title'],
             'metrics' => [
                 'site' => $this->conn->gsc_site_url,
+                'search_type' => $searchType,
                 'period' => "$start to $end",
                 'min_impressions' => $minImps,
                 'top_n' => $topN,
@@ -804,7 +809,7 @@ class ReportBuilder
         ];
     }
 
-    protected function renderKeywordRankingsHtml(array $pivot, string $start, string $end, int $minImps, int $topN): string
+    protected function renderKeywordRankingsHtml(array $pivot, string $start, string $end, int $minImps, int $topN, string $searchType = 'web'): string
     {
         $rows = $pivot['rows'];
         $months = $pivot['months'];
@@ -848,10 +853,11 @@ table.kr-pivot tbody td.empty{color:#ccc}
 </style>
 CSS;
 
+        $typeLabel = $searchType === 'news' ? 'News (Top Stories / News tab)' : 'Web (organic blue links)';
         $html .= '<div class="kr-wrap">';
         $html .= '<p><b>' . htmlspecialchars($this->conn->gsc_site_url) . '</b> · '
             . htmlspecialchars($start) . ' → ' . htmlspecialchars($end)
-            . ' · top ' . $topN . ' queries (≥ ' . $minImps . ' total impressions) · impression-weighted avg position per month</p>';
+            . ' · <b>' . $typeLabel . '</b> · top ' . $topN . ' queries (≥ ' . $minImps . ' total impressions) · impression-weighted avg position per month</p>';
 
         $html .= '<div class="kr-summary">'
             . '<span><b>' . number_format(count($rows)) . '</b> queries · <b>' . count($months) . '</b> months · <b>'

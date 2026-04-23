@@ -32,7 +32,7 @@ th{background:#f5f8ff}
 .past-list .past-date{color:#999;font-size:.8rem}
 .past-list .past-type{background:#f0f7ff;color:#1a73e8;font-size:.72rem;padding:2px 6px;border-radius:3px;margin-left:6px}
 </style>
-@if(($isPdf ?? false) && $report->type === 'keyword_rankings')
+@if(($isPdf ?? false) && in_array($report->type, ['keyword_rankings', 'keyword_rankings_news']))
 <style>
 @page { size: A4 landscape; margin: 6mm; }
 body { max-width: 100% !important; margin: 0 !important; padding: 0 !important; font-size: 9pt; }

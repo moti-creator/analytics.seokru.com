@@ -196,9 +196,15 @@ h1{font-size:2rem;margin:.1em 0 .15em}
 <div class="grid">
 
 <a class="card @if(!$gscReady) card-gated @endif" href="{{ $gscReady ? route('generate.direct', 'keyword_rankings') : '#' }}">
-<h3>Keyword Rankings Pivot</h3>
-<p>Query × month heatmap of positions. Top 50 keywords by impressions, last 13 months.</p>
+<h3>Keyword Rankings — Web</h3>
+<p>Query × month heatmap of organic blue-link positions. Top 50 keywords by impressions, last 13 months.</p>
 <span class="badge">Search Console</span>
+</a>
+
+<a class="card @if(!$gscReady) card-gated @endif" href="{{ $gscReady ? route('generate.direct', 'keyword_rankings_news') : '#' }}">
+<h3>Keyword Rankings — News</h3>
+<p>Same pivot, but only Top Stories / News tab results. See where you rank in Google News.</p>
+<span class="badge">Search Console · News</span>
 </a>
 
 <a class="card @if($gated) card-gated @endif" href="{{ $gated ? '#' : route('generate.direct', 'content_decay') }}">
