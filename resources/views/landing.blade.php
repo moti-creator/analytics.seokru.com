@@ -161,23 +161,11 @@ h1{font-size:2rem;margin:.1em 0 .15em}
 </div>
 @endif
 
-@php $gscReady = $conn && $conn->gsc_site_url; @endphp
-
-{{-- ============ LIVE DASHBOARDS ============ --}}
-<div class="divider">— Live dashboards —</div>
-<div class="grid">
-<a class="card card-cross @if(!$gscReady) card-gated @endif" href="{{ $gscReady ? route('rankings') : '#' }}">
-<h3>Keyword Rankings Pivot</h3>
-<p>Query × month heatmap. Top 50 keywords by impressions, 13 months. Filter, search, export CSV.</p>
-<span class="badge badge-cross">Search Console · Live</span>
-</a>
-</div>
+@php $gated = !$hasProperty; $gscReady = $conn && $conn->gsc_site_url; @endphp
 
 {{-- ============ CROSS-PLATFORM CARDS ============ --}}
 <div class="divider">— Cross-platform reports (GA4 × Search Console) —</div>
 <div class="grid">
-@php $gated = !$hasProperty; @endphp
-
 <a class="card card-cross @if($gated) card-gated @endif" href="{{ $gated ? '#' : route('generate.direct', 'silent_winners') }}">
 <h3>Silent Winners</h3>
 <p>Ranking well but barely clicked — title &amp; intent gaps.</p>
@@ -206,6 +194,12 @@ h1{font-size:2rem;margin:.1em 0 .15em}
 {{-- ============ SINGLE-SOURCE CARDS ============ --}}
 <div class="divider">— Single-source presets —</div>
 <div class="grid">
+
+<a class="card @if(!$gscReady) card-gated @endif" href="{{ $gscReady ? route('generate.direct', 'keyword_rankings') : '#' }}">
+<h3>Keyword Rankings Pivot</h3>
+<p>Query × month heatmap of positions. Top 50 keywords by impressions, last 13 months.</p>
+<span class="badge">Search Console</span>
+</a>
 
 <a class="card @if($gated) card-gated @endif" href="{{ $gated ? '#' : route('generate.direct', 'content_decay') }}">
 <h3>Content Decay</h3>

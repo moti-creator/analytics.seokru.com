@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Http;
 class ReportBuilder
 {
     public const TYPES = [
+        'keyword_rankings' => ['title' => 'Keyword Rankings Pivot', 'needs' => ['gsc']],
         'content_decay' => ['title' => 'Content Decay Report', 'needs' => ['ga4']],
         'striking_distance' => ['title' => 'Striking-Distance Keywords', 'needs' => ['gsc']],
         'conversion_leak' => ['title' => 'Conversion Leak Finder', 'needs' => ['ga4']],
@@ -20,6 +21,9 @@ class ReportBuilder
         'cannibalization' => ['title' => 'Keyword Cannibalization Detector', 'needs' => ['ga4','gsc']],
         'brand_rescue' => ['title' => 'Brand Rescue vs Real Growth', 'needs' => ['ga4','gsc']],
     ];
+
+    /** Types that render their own narrative and skip the LLM pipeline. */
+    protected const PREBUILT_TYPES = ['keyword_rankings'];
 
     public function __construct(public Connection $conn) {}
 
@@ -46,6 +50,12 @@ class ReportBuilder
         return Cache::remember($cacheKey, 60 * 60 * 12, function () use ($type) {
             $check = $this->sourceCheck($type);
             $g = new GoogleService($this->conn);
+
+            // Prebuilt reports skip the LLM — they return their own narrative.
+            if (in_array($type, self::PREBUILT_TYPES, true)) {
+                return $this->buildPrebuilt($type, $g);
+            }
+
             $data = match($type) {
                 'content_decay' => $this->contentDecay($g),
                 'striking_distance' => $this->strikingDistance($g),
@@ -753,5 +763,158 @@ class ReportBuilder
             'cannibalization' => "Report: KEYWORD CANNIBALIZATION (GA4+GSC join). Queries where multiple of your URLs fight for the same spot. Sections:\n<h2>Top conflicts</h2> table: query, URLs competing (with positions, clicks, and GA4 conversions per URL).\n<h2>Which URL should win</h2> for each conflict — pick the winner based on which URL actually converts. Name the loser, explain why.\n<h2>Fix actions</h2> per conflict: merge, redirect, de-optimize, or internal-link strategy.",
             'brand_rescue' => "Report: BRAND RESCUE vs REAL GROWTH (GA4+GSC join). All pct_change values are pre-computed — quote them exactly. A 'verdict' field summarises the pattern. Sections:\n<h2>Headline</h2> state brand clicks pct_change vs non-brand clicks pct_change, using the exact numbers. Interpret the 'verdict' field (non_brand_decaying_brand_masking = call out the hidden decay; genuine_growth = celebrate; brand_decay_reputation_check = warn; stable_both = boring-week; mixed = nuanced).\n<h2>The real picture</h2> include conversions_current for brand vs non-brand landing pages. Explain which is driving revenue.\n<h2>What to do</h2> 3 actions tailored to the verdict.",
         };
+    }
+
+    /**
+     * Prebuilt reports — no LLM, return the full package directly.
+     */
+    protected function buildPrebuilt(string $type, GoogleService $g): array
+    {
+        return match($type) {
+            'keyword_rankings' => $this->keywordRankings($g),
+        };
+    }
+
+    /**
+     * Query × month pivot of GSC positions. Heatmap-styled HTML narrative.
+     */
+    protected function keywordRankings(GoogleService $g): array
+    {
+        $months = 13;
+        $minImps = 10;
+        $topN = 50;
+        $end = now()->subDay()->toDateString();
+        $start = now()->subMonths($months - 1)->startOfMonth()->toDateString();
+
+        $pivot = $g->fetchGscQueryPivot($this->conn->gsc_site_url, $start, $end, $minImps, $topN);
+        $narrative = $this->renderKeywordRankingsHtml($pivot, $start, $end, $minImps, $topN);
+
+        return [
+            'type' => 'keyword_rankings',
+            'title' => self::TYPES['keyword_rankings']['title'],
+            'metrics' => [
+                'site' => $this->conn->gsc_site_url,
+                'period' => "$start to $end",
+                'min_impressions' => $minImps,
+                'top_n' => $topN,
+                'months' => $pivot['months'],
+                'rows' => $pivot['rows'],
+            ],
+            'narrative' => $narrative,
+        ];
+    }
+
+    protected function renderKeywordRankingsHtml(array $pivot, string $start, string $end, int $minImps, int $topN): string
+    {
+        $rows = $pivot['rows'];
+        $months = $pivot['months'];
+
+        $totalImps = array_sum(array_column($rows, 'totalImpressions'));
+        $totalClicks = array_sum(array_column($rows, 'totalClicks'));
+
+        // Inline CSS scoped under .kr-pivot so it doesn't leak.
+        // !important on body max-width overrides report.blade.php's 820px wrapper.
+        $html = <<<CSS
+<style>
+body{max-width:1400px!important}
+.kr-wrap{font-size:.88rem}
+.kr-summary{background:#f5f8ff;border:1px solid #d8e4ff;border-radius:8px;padding:10px 14px;margin:1em 0;display:flex;gap:18px;flex-wrap:wrap;font-size:.88rem;color:#444}
+.kr-summary b{color:#1a73e8}
+.kr-legend{display:flex;gap:4px;align-items:center;font-size:.72rem;color:#666;flex-wrap:wrap}
+.kr-legend .sw{padding:2px 6px;border-radius:3px;font-weight:600;font-size:.7rem}
+.kr-filter{margin:0 0 10px}
+.kr-filter input{padding:6px 10px;border:1px solid #cfd8e3;border-radius:6px;font-size:.9rem;min-width:260px}
+.kr-scroll{overflow:auto;max-height:75vh;border:1px solid #e3e8ee;border-radius:8px;background:#fff}
+table.kr-pivot{border-collapse:collapse;font-size:.82rem;width:max-content;min-width:100%;margin:0}
+table.kr-pivot thead th{position:sticky;top:0;background:#f8fafc;z-index:3;border-bottom:2px solid #cfd8e3;padding:8px 10px;font-weight:600;color:#555;text-align:center;white-space:nowrap}
+table.kr-pivot thead th.q{text-align:left;left:0;z-index:4;min-width:260px;max-width:360px;border-right:2px solid #cfd8e3}
+table.kr-pivot thead th.num{min-width:80px}
+table.kr-pivot tbody td{padding:6px 8px;border-bottom:1px solid #eef1f5;text-align:center;font-variant-numeric:tabular-nums}
+table.kr-pivot tbody td.q{position:sticky;left:0;background:#fff;text-align:left;font-weight:500;color:#222;z-index:2;border-right:2px solid #cfd8e3;max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.kr-pivot tbody tr:hover td.q{background:#f5f8ff}
+table.kr-pivot tbody tr:hover td{background:#fafcff}
+table.kr-pivot tbody td.num{color:#555;min-width:60px}
+table.kr-pivot tbody td.empty{color:#ccc}
+.kr-p1{background:#065f46;color:#fff}
+.kr-p2{background:#10b981;color:#fff}
+.kr-p3{background:#34d399;color:#064e3b}
+.kr-p4{background:#a7f3d0;color:#064e3b}
+.kr-p5{background:#fef3c7;color:#78350f}
+.kr-p6{background:#fde68a;color:#78350f}
+.kr-p7{background:#fbbf24;color:#78350f}
+.kr-p8{background:#fb923c;color:#7c2d12}
+.kr-p9{background:#ef4444;color:#fff}
+.kr-p10{background:#7f1d1d;color:#fff}
+</style>
+CSS;
+
+        $html .= '<div class="kr-wrap">';
+        $html .= '<p><b>' . htmlspecialchars($this->conn->gsc_site_url) . '</b> · '
+            . htmlspecialchars($start) . ' → ' . htmlspecialchars($end)
+            . ' · top ' . $topN . ' queries (≥ ' . $minImps . ' total impressions) · impression-weighted avg position per month</p>';
+
+        $html .= '<div class="kr-summary">'
+            . '<span><b>' . number_format(count($rows)) . '</b> queries · <b>' . count($months) . '</b> months · <b>'
+            . number_format($totalImps) . '</b> impressions · <b>' . number_format($totalClicks) . '</b> clicks</span>'
+            . '<div class="kr-legend">Position:'
+            . '<span class="sw kr-p1">1-2</span><span class="sw kr-p2">3</span><span class="sw kr-p3">4-5</span>'
+            . '<span class="sw kr-p4">6-10</span><span class="sw kr-p5">11-15</span><span class="sw kr-p6">16-20</span>'
+            . '<span class="sw kr-p7">21-30</span><span class="sw kr-p8">31-50</span>'
+            . '<span class="sw kr-p9">51-80</span><span class="sw kr-p10">81+</span></div></div>';
+
+        $html .= '<div class="kr-filter"><input type="text" placeholder="Filter query (live)…" '
+            . 'oninput="(function(q){q=q.toLowerCase().trim();document.querySelectorAll(\'#krBody tr\').forEach(t=>{t.style.display=!q||t.dataset.q.includes(q)?\'\':\'none\'})})(this.value)"></div>';
+
+        if (empty($rows)) {
+            $html .= '<p><i>No queries matched. The site may be new or have very low search traffic in this window.</i></p>';
+            $html .= '</div>';
+            return $html;
+        }
+
+        $html .= '<div class="kr-scroll"><table class="kr-pivot"><thead><tr>'
+            . '<th class="q">Query</th><th class="num">Impr.</th><th class="num">Clicks</th>';
+        foreach ($months as $ym) {
+            $html .= '<th>' . htmlspecialchars($ym) . '</th>';
+        }
+        $html .= '</tr></thead><tbody id="krBody">';
+
+        foreach ($rows as $row) {
+            $q = htmlspecialchars($row['query']);
+            $html .= '<tr data-q="' . strtolower($q) . '">'
+                . '<td class="q" title="' . $q . '">' . $q . '</td>'
+                . '<td class="num">' . number_format($row['totalImpressions']) . '</td>'
+                . '<td class="num">' . number_format($row['totalClicks']) . '</td>';
+            foreach ($months as $ym) {
+                $cell = $row['months'][$ym] ?? null;
+                $pos = $cell['position'] ?? null;
+                if ($pos === null) {
+                    $html .= '<td class="empty">—</td>';
+                } else {
+                    $cls = $this->posClass($pos);
+                    $imps = $cell['impressions'] ?? 0;
+                    $clicks = $cell['clicks'] ?? 0;
+                    $title = "Pos $pos · " . number_format($imps) . ' impressions · ' . number_format($clicks) . ' clicks';
+                    $html .= '<td class="' . $cls . '" title="' . htmlspecialchars($title) . '">' . $pos . '</td>';
+                }
+            }
+            $html .= '</tr>';
+        }
+
+        $html .= '</tbody></table></div></div>';
+        return $html;
+    }
+
+    protected function posClass(float $p): string
+    {
+        if ($p <= 2) return 'kr-p1';
+        if ($p <= 3.5) return 'kr-p2';
+        if ($p <= 5.5) return 'kr-p3';
+        if ($p <= 10.5) return 'kr-p4';
+        if ($p <= 15.5) return 'kr-p5';
+        if ($p <= 20.5) return 'kr-p6';
+        if ($p <= 30.5) return 'kr-p7';
+        if ($p <= 50.5) return 'kr-p8';
+        if ($p <= 80.5) return 'kr-p9';
+        return 'kr-p10';
     }
 }
