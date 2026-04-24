@@ -193,6 +193,13 @@ class AgentService
         $tools = GroqService::convertToolDefs($this->toolDefs());
         $resp = $groq->chat($groqHistory, $tools);
 
+        // Detect Groq rate-limit / error → switch to Gemini for the rest of the run.
+        if (isset($resp['error']) || (isset($resp['choices'][0]['message']['content']) && str_contains((string)$resp['choices'][0]['message']['content'], 'rate_limit_exceeded'))) {
+            Log::warning('Groq rate-limit/error — switching to Gemini', ['resp_snippet' => substr(json_encode($resp), 0, 300)]);
+            $this->backend = 'gemini';
+            return ['switched' => true];
+        }
+
         $msg = $resp['choices'][0]['message'] ?? [];
 
         if (!empty($msg['tool_calls'])) {
