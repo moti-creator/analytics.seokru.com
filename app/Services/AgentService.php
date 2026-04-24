@@ -264,16 +264,28 @@ class AgentService
             'startDate' => $args['date_start'] ?? now()->subDays(28)->toDateString(),
             'endDate' => $args['date_end'] ?? now()->subDays(3)->toDateString(),
             'dimensions' => $args['dimensions'] ?? [],
-            'rowLimit' => min((int)($args['limit'] ?? 25), 500),
+            'rowLimit' => min((int)($args['limit'] ?? 25), 50),
         ];
 
         $url = 'https://www.googleapis.com/webmasters/v3/sites/' . urlencode($site) . '/searchAnalytics/query';
         $resp = Http::withToken($google->publicToken())->post($url, $body)->json();
 
-        return [
-            'rows' => array_slice($resp['rows'] ?? [], 0, $body['rowLimit']),
-            'row_count' => count($resp['rows'] ?? []),
-        ];
+        // Compact rows: flatten keys[] + round numbers to shrink LLM context.
+        $dims = $body['dimensions'];
+        $rows = [];
+        foreach (array_slice($resp['rows'] ?? [], 0, $body['rowLimit']) as $r) {
+            $row = [];
+            foreach ($dims as $i => $d) {
+                $row[$d] = $r['keys'][$i] ?? null;
+            }
+            $row['clicks'] = (int)($r['clicks'] ?? 0);
+            $row['impressions'] = (int)($r['impressions'] ?? 0);
+            $row['ctr'] = round(($r['ctr'] ?? 0) * 100, 2);
+            $row['position'] = round($r['position'] ?? 0, 1);
+            $rows[] = $row;
+        }
+
+        return ['rows' => $rows, 'row_count' => count($rows)];
     }
 
     protected function shrinkGa4Response(array $resp): array
@@ -373,7 +385,7 @@ The user is asking for a DELTA between current period and previous period.
 Steps:
 1. Resolve current period: e.g. "last 28 days" = today minus 27 → today.
 2. Resolve previous period: the same length immediately before current. For 28 days: today-55 → today-28.
-3. Call gsc_query TWICE (or ga4_query twice), once per period, with dimension=page (or query) and limit 100-200.
+3. Call gsc_query TWICE (or ga4_query twice), once per period, with dimension=page (or query) and limit 30 (KEEP IT SMALL to fit in context).
 4. Join the results yourself: for each page/query appearing in current, find its value in previous. Compute delta = current - previous. Missing = treat previous as 0.
 5. Sort by delta descending (or ascending for decline) and take top N.
 6. Present in a table: Page | Previous clicks | Current clicks | Delta.
