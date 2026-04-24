@@ -61,8 +61,18 @@ class AskController extends Controller
 
     public function run(Request $r)
     {
+        \Log::info('[ASK] run() entered', [
+            'prompt' => $r->input('prompt'),
+            'has_conn_id' => (bool) session('connection_id'),
+            'conn_id' => session('connection_id'),
+            'ip' => $r->ip(),
+        ]);
+
         $conn = Connection::find(session('connection_id'));
-        if (!$conn) return redirect('/');
+        if (!$conn) {
+            \Log::warning('[ASK] no connection in session — redirect to /');
+            return redirect('/');
+        }
 
         $r->validate([
             'prompt' => 'required|string|max:2000',
@@ -75,8 +85,23 @@ class AskController extends Controller
             'gsc_site_url' => $r->gsc_site_url ?: $conn->gsc_site_url,
         ]);
 
+        \Log::info('[ASK] invoking agent', [
+            'conn_id' => $conn->id,
+            'ga4' => $conn->ga4_property_id,
+            'gsc' => $conn->gsc_site_url,
+        ]);
+
+        $t0 = microtime(true);
         $agent = new AgentService($conn);
         $result = $agent->run($r->prompt);
+        \Log::info('[ASK] agent returned', [
+            'elapsed_s' => round(microtime(true) - $t0, 1),
+            'ask_user' => $result['ask_user'] ?? false,
+            'iters' => $result['iterations'] ?? 0,
+            'tools' => count($result['tool_calls'] ?? []),
+            'narr_len' => strlen($result['narrative'] ?? ''),
+            'error' => $result['error'] ?? false,
+        ]);
 
         // Agent asked a clarifying question — show it instead of saving a report.
         if (!empty($result['ask_user'])) {
