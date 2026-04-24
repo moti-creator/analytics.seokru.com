@@ -52,9 +52,12 @@ class ReportController extends Controller
 
         $conn = session('connection_id') ? Connection::find(session('connection_id')) : null;
         if ($conn) {
-            // Has property already? Skip connect, go to ask.
+            // Has property already? Run the agent directly — no intermediate form click.
             if ($conn->ga4_property_id || $conn->gsc_site_url) {
-                return redirect()->route('ask.form');
+                session()->forget('pending_prompt');
+                return app(\App\Http\Controllers\AskController::class)->run(
+                    $r->merge(['prompt' => $r->prompt])
+                );
             }
             return redirect()->route('connect');
         }
