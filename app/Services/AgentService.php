@@ -31,6 +31,7 @@ class AgentService
         $this->backend = $this->pickBackend();
         $google = new GoogleService($this->conn);
         $toolCalls = [];
+        $nudged = false;
         $systemPrompt = $this->systemPrompt();
 
         // Initialize history in backend-native format
@@ -101,6 +102,15 @@ class AgentService
             // Final text response
             $text = $parsed['text'] ?? '';
             if (trim(strip_tags($text)) === '') {
+                // Nudge the model once — sometimes it stalls after tool calls.
+                if (!empty($toolCalls) && empty($nudged)) {
+                    $nudged = true;
+                    $nudge = "Now write the final HTML report using ONLY the data from the tool calls above. Use <h2>, <p>, <table>, <strong>. Start with a 1-sentence summary. Include a table with the top 5 pages showing Previous clicks, Current clicks, and Delta. No markdown. No code fences. Do not call any more tools.";
+                    $geminiHistory[] = ['role' => 'user', 'parts' => [['text' => $nudge]]];
+                    $groqHistory[] = ['role' => 'user', 'content' => $nudge];
+                    continue;
+                }
+
                 Log::warning('Agent empty narrative', [
                     'prompt' => $userPrompt,
                     'backend' => $this->backend,
