@@ -22,6 +22,7 @@ class ReportBuilder
         'cannibalization' => ['title' => 'Keyword Cannibalization Detector', 'needs' => ['ga4','gsc']],
         'brand_rescue' => ['title' => 'Brand Rescue vs Real Growth', 'needs' => ['ga4','gsc']],
         'llm_traffic' => ['title' => 'LLM Traffic — Visitors from ChatGPT, Perplexity, Claude & Co.', 'needs' => ['ga4']],
+        'new_referrers' => ['title' => 'New Referring Domains', 'needs' => ['ga4']],
     ];
 
     /** Types that render their own narrative and skip the LLM pipeline. */
@@ -69,6 +70,7 @@ class ReportBuilder
                 'cannibalization' => $this->cannibalization($g),
                 'brand_rescue' => $this->brandRescue($g),
                 'llm_traffic' => $this->llmTraffic($g),
+                'new_referrers' => $this->newReferrers($g),
             };
             // Add source availability info so the LLM knows what data it has
             if ($check['missing']) {
@@ -706,6 +708,95 @@ class ReportBuilder
     }
 
     /**
+     * New referring domains: GA4 sessionSource where sessionMedium=referral.
+     * Compares current 30 days vs previous 90 days lookback to find domains
+     * appearing for the first time in current window.
+     */
+    protected function newReferrers(GoogleService $g): array
+    {
+        $pid = $this->conn->ga4_property_id;
+        $curEnd = now()->subDay()->toDateString();
+        $curStart = now()->subDays(30)->toDateString();
+        $histEnd = now()->subDays(31)->toDateString();
+        $histStart = now()->subDays(120)->toDateString(); // 90-day lookback
+
+        $cur = $this->ga4Referrers($g, $pid, $curStart, $curEnd);
+        $hist = $this->ga4Referrers($g, $pid, $histStart, $histEnd);
+        $histKnown = array_flip(array_column($hist, 'source'));
+
+        // New = present in current, not in previous 90 days
+        $new = []; $returning = [];
+        foreach ($cur as $r) {
+            if (!isset($histKnown[$r['source']])) {
+                $new[] = $r;
+            } else {
+                $returning[] = $r;
+            }
+        }
+        usort($new, fn($a, $b) => $b['sessions'] <=> $a['sessions']);
+        usort($returning, fn($a, $b) => $b['sessions'] <=> $a['sessions']);
+
+        $totalSessions = array_sum(array_column($cur, 'sessions'));
+        $newSessions = array_sum(array_column($new, 'sessions'));
+
+        return [
+            'period_current' => "$curStart to $curEnd",
+            'period_lookback' => "$histStart to $histEnd (used as 'known domains' baseline)",
+            'methodology' => 'A referring domain is "new" if it sent at least 1 session in the current period AND zero sessions during the 90-day lookback before that.',
+            'totals' => [
+                'all_referral_sessions_current' => $totalSessions,
+                'new_referrer_sessions_current' => $newSessions,
+                'unique_new_domains' => count($new),
+                'unique_returning_domains' => count($returning),
+                'new_share_pct' => $totalSessions > 0 ? round(($newSessions / max(1, $totalSessions)) * 100, 2) : 0,
+            ],
+            'new_referrers' => array_slice($new, 0, 30),
+            'top_returning_referrers' => array_slice($returning, 0, 10),
+            'note' => count($new) === 0 ? 'No new referring domains in the last 30 days. All referral traffic comes from sources you already had.' : null,
+        ];
+    }
+
+    /**
+     * GA4 referral sources only (sessionMedium=referral) with sessions/users/conv.
+     */
+    protected function ga4Referrers(GoogleService $g, string $pid, string $start, string $end): array
+    {
+        $resp = Http::withToken($g->publicToken())->post(
+            "https://analyticsdata.googleapis.com/v1beta/properties/{$pid}:runReport",
+            [
+                'dateRanges' => [['startDate' => $start, 'endDate' => $end]],
+                'dimensions' => [['name' => 'sessionSource'], ['name' => 'sessionMedium']],
+                'metrics' => [
+                    ['name' => 'sessions'],
+                    ['name' => 'totalUsers'],
+                    ['name' => 'conversions'],
+                ],
+                'dimensionFilter' => [
+                    'filter' => [
+                        'fieldName' => 'sessionMedium',
+                        'stringFilter' => ['matchType' => 'EXACT', 'value' => 'referral'],
+                    ],
+                ],
+                'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
+                'limit' => 1000,
+            ]
+        )->json();
+
+        $out = [];
+        foreach ($resp['rows'] ?? [] as $r) {
+            $src = $r['dimensionValues'][0]['value'] ?? '';
+            if (!$src || $src === '(not set)' || $src === '(direct)') continue;
+            $out[] = [
+                'source' => $src,
+                'sessions' => (int) ($r['metricValues'][0]['value'] ?? 0),
+                'users' => (int) ($r['metricValues'][1]['value'] ?? 0),
+                'conversions' => (int) ($r['metricValues'][2]['value'] ?? 0),
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * GA4 query: sessionSource × landingPage with sessions, users, conversions.
      */
     protected function ga4SourceLanding(GoogleService $g, string $pid, string $start, string $end): array
@@ -926,6 +1017,7 @@ class ReportBuilder
             'converting_queries' => "Report: CONVERTING QUERIES YOU'RE LOSING (GA4+GSC join). These pages make the most money — did their Google ranking slip? Sections:\n<h2>Revenue pages at risk</h2> table: page, conversions, sessions, top query, position now, position 90d ago, rank change (positive = worse).\n<h2>Biggest slippers</h2> pages where rank dropped >2 positions. Name them, quantify the click loss risk.\n<h2>Recovery plan</h2> 3 concrete actions prioritized by revenue × rank-drop.",
             'cannibalization' => "Report: KEYWORD CANNIBALIZATION (GA4+GSC join). Queries where multiple of your URLs fight for the same spot. Sections:\n<h2>Top conflicts</h2> table: query, URLs competing (with positions, clicks, and GA4 conversions per URL).\n<h2>Which URL should win</h2> for each conflict — pick the winner based on which URL actually converts. Name the loser, explain why.\n<h2>Fix actions</h2> per conflict: merge, redirect, de-optimize, or internal-link strategy.",
             'brand_rescue' => "Report: BRAND RESCUE vs REAL GROWTH (GA4+GSC join). All pct_change values are pre-computed — quote them exactly. A 'verdict' field summarises the pattern. Sections:\n<h2>Headline</h2> state brand clicks pct_change vs non-brand clicks pct_change, using the exact numbers. Interpret the 'verdict' field (non_brand_decaying_brand_masking = call out the hidden decay; genuine_growth = celebrate; brand_decay_reputation_check = warn; stable_both = boring-week; mixed = nuanced).\n<h2>The real picture</h2> include conversions_current for brand vs non-brand landing pages. Explain which is driving revenue.\n<h2>What to do</h2> 3 actions tailored to the verdict.",
+            'new_referrers' => "Report: NEW REFERRING DOMAINS. Detects domains that started sending you referral traffic in the last 30 days, compared to a 90-day lookback baseline. All counts are pre-computed — quote exactly. If 'note' is set (no new referrers), lead with it. Sections:\n<h2>Headline</h2> totals.unique_new_domains new domains, totals.new_referrer_sessions_current sessions from them, totals.new_share_pct% of all referral traffic. Mention current period dates from period_current.\n<h2>The new domains</h2> table from new_referrers (top 30): source, sessions, users, conversions. Highlight any with conversions > 0 — those are real value, not just clicks.\n<h2>Returning referrers (context)</h2> table from top_returning_referrers (top 10): source, sessions, conversions. So user can compare new vs known.\n<h2>What to do</h2> 3 actions: (a) for the highest-traffic new domain, suggest visiting it to find the inbound link and consider relationship-building; (b) check that any high-traffic new referrer is legitimate (not bot/spam); (c) if any new domain converted, flag it as a potential partnership/PR opportunity.",
             'llm_traffic' => "Report: LLM TRAFFIC. Detects visitors arriving from AI chatbots/search (ChatGPT, Perplexity, Claude, Gemini, Copilot, etc.). All numbers in 'llm_totals' and 'per_llm' are pre-computed — quote exactly. If 'note' is set, lead with it. Sections:\n<h2>Headline</h2> total LLM sessions current, share_of_total_pct of all sessions, sessions_pct_change vs previous period. Be honest if numbers are tiny — LLM referral traffic is still small for most sites.\n<h2>Which LLMs are sending traffic</h2> table from per_llm: LLM name, sessions, users, conversions. Sort by sessions desc.\n<h2>Top landing pages from LLM traffic</h2> table from top_landing_pages: LLM, page, sessions, conversions. Show top 10.\n<h2>Conversational queries in Search Console</h2> if 'gsc_conversational_query_signals' has rows, table top 10 (query, impressions, clicks, position). Caveat: these are NOT confirmed LLM-driven — they are long/question-form queries which correlate with AI-search behavior. Useful as a 2nd signal.\n<h2>What this means + what to do</h2> 3 specific recommendations (e.g. content optimised for citation, schema for AI Overviews, tracking via UTMs from any AI experiments). If LLM share is 0%, focus on llms.txt + content structure for AI crawlability.",
         };
     }

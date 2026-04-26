@@ -236,6 +236,12 @@ h1{font-size:2rem;margin:.1em 0 .15em}
 <span class="badge" style="background:#ffedd5;color:#ea580c">GA4 · AI Referrals</span>
 </a>
 
+<a class="card @if(!$conn || !$conn->ga4_property_id) card-gated @endif" href="{{ ($conn && $conn->ga4_property_id) ? route('generate.direct', 'new_referrers') : '#' }}" style="border-color:#22c55e;background:linear-gradient(135deg,#f0fdf4 0%,#fff 100%)">
+<h3 style="color:#15803d">New Referring Domains <span style="font-size:.65rem;background:#15803d;color:#fff;padding:2px 6px;border-radius:4px;margin-left:4px;vertical-align:middle">NEW</span></h3>
+<p>Domains that started sending you traffic in the last 30 days. New backlinks, mentions, partnerships — caught early.</p>
+<span class="badge" style="background:#dcfce7;color:#15803d">GA4 · Referrals</span>
+</a>
+
 <a class="card @if($gated) card-gated @endif" href="{{ $gated ? '#' : route('generate.direct', 'content_decay') }}">
 <h3>Content Decay</h3>
 <p>Pages losing traffic and by how much.</p>
