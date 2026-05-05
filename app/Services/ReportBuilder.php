@@ -48,7 +48,8 @@ class ReportBuilder
     {
         // Cache key: same user + same report type + same day = same result.
         // Saves Gemini/Groq calls. Cache for 12 hours.
-        $cacheKey = "report:{$this->conn->id}:{$type}:" . now()->toDateString();
+        $propHash = md5(($this->conn->gsc_site_url ?? '') . '|' . ($this->conn->ga4_property_id ?? ''));
+        $cacheKey = "report:{$this->conn->id}:{$type}:{$propHash}:" . now()->toDateString();
 
         return Cache::remember($cacheKey, 60 * 60 * 12, function () use ($type) {
             $check = $this->sourceCheck($type);
