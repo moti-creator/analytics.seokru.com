@@ -41,3 +41,21 @@ Route::get('/r/{report:slug}/pdf', [ReportController::class, 'pdf'])->name('repo
 
 // Telegram bot webhook — CSRF exempted via VerifyCsrfToken::$except
 Route::post('/webhooks/telegram', [TelegramWebhookController::class, 'handle'])->name('webhook.telegram');
+
+// TDNet outreach dashboard
+Route::middleware(['tdnet.auth'])->group(function () {
+    Route::get('/tdnet', [\App\Http\Controllers\TdnetController::class, 'index'])->name('tdnet.index');
+    Route::post('/tdnet', [\App\Http\Controllers\TdnetController::class, 'index']); // login form post
+    Route::get('/tdnet/leads/{lead}', [\App\Http\Controllers\TdnetController::class, 'show']);
+    Route::post('/tdnet/leads/{lead}/generate', [\App\Http\Controllers\TdnetController::class, 'generate']);
+    Route::post('/tdnet/leads/{lead}/regenerate-body', [\App\Http\Controllers\TdnetController::class, 'regenerateBody']);
+    Route::post('/tdnet/leads/{lead}/subject', [\App\Http\Controllers\TdnetController::class, 'pickSubject']);
+    Route::post('/tdnet/leads/{lead}/sent', [\App\Http\Controllers\TdnetController::class, 'markSent']);
+    Route::post('/tdnet/leads/{lead}/skip', [\App\Http\Controllers\TdnetController::class, 'markSkipped']);
+    Route::post('/tdnet/leads/{lead}/replied', [\App\Http\Controllers\TdnetController::class, 'markReplied']);
+    Route::post('/tdnet/source', [\App\Http\Controllers\TdnetController::class, 'source']);
+    Route::post('/tdnet/logout', function (\Illuminate\Http\Request $r) {
+        $r->session()->forget('tdnet_auth');
+        return redirect('/tdnet');
+    })->name('tdnet.logout');
+});

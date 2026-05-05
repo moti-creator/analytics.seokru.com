@@ -56,5 +56,9 @@ return [
     'bot_username' => env('TELEGRAM_BOT_USERNAME'),
 ],
 
+'apify' => [
+    'token' => env('APIFY_TOKEN'),
+],
+
 
 ];
