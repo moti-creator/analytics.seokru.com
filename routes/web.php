@@ -43,7 +43,6 @@ Route::get('/r/{report:slug}/pdf', [ReportController::class, 'pdf'])->name('repo
 Route::get('/boost', [\App\Http\Controllers\BoostController::class, 'form'])->name('boost.form');
 Route::post('/boost', [\App\Http\Controllers\BoostController::class, 'submit'])->name('boost.submit');
 Route::get('/boost/{boost}', [\App\Http\Controllers\BoostController::class, 'show'])->name('boost.show');
-Route::get('/boost/{boost}/llms.txt', [\App\Http\Controllers\BoostController::class, 'downloadLlmsTxt'])->name('boost.llms');
 Route::get('/boost/{boost}/indexnow-key', [\App\Http\Controllers\BoostController::class, 'downloadIndexNowKey'])->name('boost.indexnow.key');
 
 // Telegram bot webhook — CSRF exempted via VerifyCsrfToken::$except

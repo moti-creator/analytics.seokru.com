@@ -36,7 +36,9 @@ class BoostController extends Controller
             $sub = $this->boost->boost($url, $conn, [
                 'indexnow' => $r->boolean('indexnow', true),
                 'indexing_api' => $r->boolean('indexing_api', true),
-                'llms_txt' => $r->boolean('llms_txt', true),
+                'wayback' => $r->boolean('wayback', true),
+                'archive_today' => $r->boolean('archive_today', true),
+                'websub' => $r->boolean('websub', true),
             ]);
         } catch (\RuntimeException $e) {
             return back()->withErrors(['rate' => $e->getMessage()])->withInput();
@@ -55,18 +57,6 @@ class BoostController extends Controller
         }
 
         return view('boost.show', ['sub' => $boost, 'conn' => $conn]);
-    }
-
-    /** Download generated llms.txt as a file. */
-    public function downloadLlmsTxt(BoostSubmission $boost)
-    {
-        $content = data_get($boost->llms_txt_result, 'content');
-        abort_unless($content, 404);
-
-        return response($content, 200, [
-            'Content-Type' => 'text/markdown; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="llms.txt"',
-        ]);
     }
 
     /** Download IndexNow key file (the user uploads to https://{host}/{key}.txt). */

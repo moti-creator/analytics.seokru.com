@@ -53,11 +53,11 @@ button.submit:hover{background:#c2410c}
 </div>
 
 <h1>Boost Visibility</h1>
-<p class="sub">Submit a URL to indexing channels. Faster Google + Bing indexing. AI search visibility (ChatGPT, Claude, Copilot) via Bing.</p>
+<p class="sub">Submit a URL to indexing channels + create persistent archive snapshots. Faster Google + Bing indexing. AI search visibility (ChatGPT, Claude, Copilot) via Bing.</p>
 
 <div class="hero">
 <h2><span class="hero-icon">⚡</span> What happens when you click Boost</h2>
-<p>We ping every indexing channel that accepts submissions: Bing, Yandex, Brave, Yep (these feed ChatGPT, Claude, Copilot). Plus Google's Indexing API and an auto-generated <code>llms.txt</code> file. Then we monitor index status at 24h, 72h, 7d.</p>
+<p>We ping every legit indexing channel: IndexNow (Bing/Yandex/Naver fan-out → ChatGPT, Copilot, Claude), Google's Indexing API, plus snapshot the page on Wayback Machine + Archive.today (persistent indexable URLs that act like pseudo-backlinks). WebSub pings the feed hub if your site has RSS. Then we monitor index status at 24h, 72h, 7d.</p>
 </div>
 
 @if($errors->any())
@@ -90,10 +90,26 @@ button.submit:hover{background:#c2410c}
 </label>
 
 <label class="channel">
-<input type="checkbox" name="llms_txt" value="1" checked>
+<input type="checkbox" name="wayback" value="1" checked>
 <div class="channel-info">
-<div class="channel-name">Generate llms.txt <span class="tier-badge tier-free">Free</span></div>
-<div class="channel-desc">Auto-builds a Markdown content map for AI crawlers (proposed standard at llmstxt.org). Anthropic and Cloudflare publish one. Cost near-zero, future-proof for LLM citation.</div>
+<div class="channel-name">Wayback Machine snapshot <span class="tier-badge tier-free">Free</span></div>
+<div class="channel-desc">Creates a permanent archive at <code>web.archive.org/web/{url}</code>. The snapshot is publicly indexable, crawled by Google + Bing, cited by some LLMs. Acts like a persistent backlink.</div>
+</div>
+</label>
+
+<label class="channel">
+<input type="checkbox" name="archive_today" value="1" checked>
+<div class="channel-info">
+<div class="channel-name">Archive.today snapshot <span class="tier-badge tier-free">Free</span></div>
+<div class="channel-desc">Alternate web archive at <code>archive.ph/{url}</code>. Captures pages Wayback can't (heavy JS, paywalled). Another persistent indexable URL.</div>
+</div>
+</label>
+
+<label class="channel">
+<input type="checkbox" name="websub" value="1" checked>
+<div class="channel-info">
+<div class="channel-name">WebSub feed ping <span class="tier-badge tier-free">Free</span></div>
+<div class="channel-desc">Pings Google's pubsubhubbub hub if your site has an RSS/Atom feed. Triggers Google to re-fetch the feed — surfaces new posts faster. Auto-skipped if no feed found.</div>
 </div>
 </label>
 

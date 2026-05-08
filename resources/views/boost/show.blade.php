@@ -126,24 +126,60 @@ We'll re-check Google index status at 24h, 72h, and 7 days. Check back here for 
 </div>
 @endif
 
-{{-- llms.txt --}}
-@if($sub->llms_txt_result)
-@php $lt = $sub->llms_txt_result; @endphp
+{{-- Wayback Machine --}}
+@if($sub->wayback_result)
+@php $wb = $sub->wayback_result; @endphp
 <div class="section">
 <h3>
-🤖 llms.txt for AI crawlers
-@if($lt['url_count'] ?? 0)
-<span class="status-pill status-ok">{{ $lt['url_count'] }} URLs · {{ $lt['section_count'] }} sections</span>
-@else
-<span class="status-pill status-warn">No sitemap found</span>
-@endif
+📚 Wayback Machine snapshot
+<span class="status-pill {{ ($wb['ok'] ?? false) ? 'status-ok' : 'status-fail' }}">{{ ($wb['ok'] ?? false) ? 'Saved' : 'Failed' }}</span>
 </h3>
-<p style="font-size:.88rem;color:#334155">Auto-generated content map for AI crawlers per llmstxt.org spec. Install at <code>{{ $lt['install_path'] ?? '/llms.txt' }}</code>.</p>
-<a href="{{ route('boost.llms', $sub) }}" class="btn">Download llms.txt</a>
-<details style="margin-top:.8em">
-<summary style="cursor:pointer;color:#475569;font-size:.85rem">Preview content</summary>
-<div class="code-block">{{ \Illuminate\Support\Str::limit($lt['content'] ?? '', 1500) }}</div>
-</details>
+@if($wb['snapshot_url'] ?? null)
+<p style="font-size:.88rem;color:#334155">Persistent snapshot saved at archive.org. Indexable by Google/Bing.</p>
+<a href="{{ $wb['snapshot_url'] }}" target="_blank" class="btn">View snapshot →</a>
+<dl class="kv"><dt>Archive URL</dt><dd>{{ $wb['snapshot_url'] }}</dd></dl>
+@else
+<p style="font-size:.88rem;color:#991b1b">{{ $wb['error'] ?? 'Could not capture snapshot. Wayback may rate-limit; retry later.' }}</p>
+@endif
+</div>
+@endif
+
+{{-- Archive.today --}}
+@if($sub->archive_today_result)
+@php $at = $sub->archive_today_result; @endphp
+<div class="section">
+<h3>
+🗄 Archive.today snapshot
+<span class="status-pill {{ ($at['ok'] ?? false) ? 'status-ok' : 'status-fail' }}">{{ ($at['ok'] ?? false) ? 'Saved' : 'Failed' }}</span>
+</h3>
+@if($at['snapshot_url'] ?? null)
+<p style="font-size:.88rem;color:#334155">Alternate persistent archive (archive.ph). Often captures pages Wayback can't.</p>
+<a href="{{ $at['snapshot_url'] }}" target="_blank" class="btn">View snapshot →</a>
+<dl class="kv"><dt>Archive URL</dt><dd>{{ $at['snapshot_url'] }}</dd></dl>
+@else
+<p style="font-size:.88rem;color:#991b1b">{{ $at['error'] ?? 'Capture failed (HTTP ' . ($at['status'] ?? '?') . '). archive.ph may be rate-limiting.' }}</p>
+@endif
+</div>
+@endif
+
+{{-- WebSub --}}
+@if($sub->websub_result)
+@php $ws = $sub->websub_result; @endphp
+<div class="section">
+<h3>
+📡 WebSub feed ping
+<span class="status-pill {{ ($ws['ok'] ?? false) ? 'status-ok' : 'status-warn' }}">{{ ($ws['ok'] ?? false) ? 'Pinged' : 'Skipped' }}</span>
+</h3>
+@if($ws['ok'] ?? false)
+<p style="font-size:.88rem;color:#334155">Pinged Google's pubsubhubbub hub for feed: <code>{{ $ws['feed_url'] ?? '' }}</code></p>
+<dl class="kv">
+@foreach($ws['hubs'] ?? [] as $name => $h)
+<dt>{{ ucfirst($name) }}</dt><dd>HTTP {{ $h['status'] ?? '?' }}{{ ($h['ok'] ?? false) ? ' ✓' : '' }}</dd>
+@endforeach
+</dl>
+@else
+<p style="font-size:.88rem;color:#78350f">{{ $ws['reason'] ?? 'No RSS/Atom feed detected on this domain. WebSub skipped.' }}</p>
+@endif
 </div>
 @endif
 
