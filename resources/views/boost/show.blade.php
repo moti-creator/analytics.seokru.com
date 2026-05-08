@@ -111,7 +111,11 @@ We'll re-check Google index status at 24h, 72h, and 7 days. Check back here for 
 @endif
 </dl>
 @else
-<p style="font-size:.88rem;color:#991b1b">{{ $ia['reason'] ?? $ia['error'] ?? 'Unknown error.' }}</p>
+@php $iaMsg = $ia['reason'] ?? $ia['error'] ?? data_get($ia, 'body.error.message') ?? 'Unknown error (HTTP ' . ($ia['status'] ?? '?') . ')'; @endphp
+<p style="font-size:.88rem;color:#991b1b">{{ $iaMsg }}</p>
+@if(data_get($ia, 'body.error.status'))
+<p style="font-size:.78rem;color:#64748b;font-family:monospace">{{ data_get($ia, 'body.error.status') }}</p>
+@endif
 @if(!($conn ?? false))
 <a href="/auth/google" class="btn">Connect Google to enable</a>
 @else
