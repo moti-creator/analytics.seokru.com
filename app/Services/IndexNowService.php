@@ -16,6 +16,9 @@ class IndexNowService
 {
     /** Endpoints that accept IndexNow pings. */
     public const ENDPOINTS = [
+        // Canonical fan-out: forwards to ALL IndexNow participants + future ones
+        'indexnow' => 'https://api.indexnow.org/indexnow',
+        // Direct submits (redundant with canonical but ensures delivery)
         'bing' => 'https://www.bing.com/indexnow',
         'yandex' => 'https://yandex.com/indexnow',
         'naver' => 'https://searchadvisor.naver.com/indexnow',
