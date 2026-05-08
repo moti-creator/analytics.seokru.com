@@ -10,8 +10,8 @@ return new class extends Migration {
         Schema::create('boost_submissions', function (Blueprint $t) {
             $t->id();
             $t->foreignId('connection_id')->nullable()->constrained()->nullOnDelete();
-            $t->string('url', 1024);
-            $t->string('domain', 255)->index();
+            $t->text('url');
+            $t->string('domain', 191)->index();
             // Per-channel results (json)
             $t->json('indexnow_result')->nullable();
             $t->json('indexing_api_result')->nullable();
@@ -25,7 +25,7 @@ return new class extends Migration {
             $t->timestamp('completed_at')->nullable();
             $t->timestamps();
             $t->index(['connection_id', 'created_at']);
-            $t->index(['url', 'created_at']);
+            $t->index(['domain', 'created_at']);
         });
     }
 
