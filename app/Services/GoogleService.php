@@ -222,5 +222,57 @@ class GoogleService
         return ['months' => $months, 'rows' => $result];
     }
 
+    /**
+     * Submit a URL to the Google Indexing API.
+     * Officially supports JobPosting + BroadcastEvent (live videos). Other URL
+     * types nudge the crawler but Google may ignore.
+     *
+     * Requires: scope `https://www.googleapis.com/auth/indexing` AND the user
+     * must be Owner of the property in Search Console.
+     *
+     * @param string $url
+     * @param string $type  'URL_UPDATED' | 'URL_DELETED'
+     */
+    public function indexingApiNotify(string $url, string $type = 'URL_UPDATED'): array
+    {
+        try {
+            $r = Http::withToken($this->token())
+                ->timeout(15)
+                ->post('https://indexing.googleapis.com/v3/urlNotifications:publish', [
+                    'url' => $url,
+                    'type' => $type,
+                ]);
+            return [
+                'ok' => $r->successful(),
+                'status' => $r->status(),
+                'body' => $r->json(),
+            ];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'status' => 0, 'error' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * URL Inspection API — read live indexing status for a URL.
+     * Requires the user to be a verified user of the GSC property.
+     */
+    public function urlInspect(string $siteUrl, string $url): array
+    {
+        try {
+            $r = Http::withToken($this->token())
+                ->timeout(20)
+                ->post('https://searchconsole.googleapis.com/v1/urlInspection/index:inspect', [
+                    'inspectionUrl' => $url,
+                    'siteUrl' => $siteUrl,
+                ]);
+            return [
+                'ok' => $r->successful(),
+                'status' => $r->status(),
+                'body' => $r->json(),
+            ];
+        } catch (\Throwable $e) {
+            return ['ok' => false, 'status' => 0, 'error' => $e->getMessage()];
+        }
+    }
 }
 

@@ -12,7 +12,8 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        // Re-check Google index status for recent boost submissions at 24h/72h/7d marks.
+        $schedule->command('boost:followup')->hourly()->withoutOverlapping();
     }
 
     /**

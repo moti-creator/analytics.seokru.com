@@ -39,6 +39,13 @@ Route::delete('/ask/saved/{saved}', [AskController::class, 'deleteSaved'])->name
 Route::get('/r/{report:slug}', [ReportController::class, 'show'])->name('report.show');
 Route::get('/r/{report:slug}/pdf', [ReportController::class, 'pdf'])->name('report.pdf');
 
+// Boost Visibility — fast indexing (IndexNow + Google Indexing API + llms.txt)
+Route::get('/boost', [\App\Http\Controllers\BoostController::class, 'form'])->name('boost.form');
+Route::post('/boost', [\App\Http\Controllers\BoostController::class, 'submit'])->name('boost.submit');
+Route::get('/boost/{boost}', [\App\Http\Controllers\BoostController::class, 'show'])->name('boost.show');
+Route::get('/boost/{boost}/llms.txt', [\App\Http\Controllers\BoostController::class, 'downloadLlmsTxt'])->name('boost.llms');
+Route::get('/boost/{boost}/indexnow-key', [\App\Http\Controllers\BoostController::class, 'downloadIndexNowKey'])->name('boost.indexnow.key');
+
 // Telegram bot webhook — CSRF exempted via VerifyCsrfToken::$except
 Route::post('/webhooks/telegram', [TelegramWebhookController::class, 'handle'])->name('webhook.telegram');
 
@@ -53,6 +60,7 @@ Route::middleware(['tdnet.auth'])->group(function () {
     Route::post('/tdnet/leads/{lead}/sent', [\App\Http\Controllers\TdnetController::class, 'markSent']);
     Route::post('/tdnet/leads/{lead}/skip', [\App\Http\Controllers\TdnetController::class, 'markSkipped']);
     Route::post('/tdnet/leads/{lead}/replied', [\App\Http\Controllers\TdnetController::class, 'markReplied']);
+    Route::post('/tdnet/leads/{lead}/status', [\App\Http\Controllers\TdnetController::class, 'setStatus']);
     Route::post('/tdnet/source', [\App\Http\Controllers\TdnetController::class, 'source']);
     Route::post('/tdnet/logout', function (\Illuminate\Http\Request $r) {
         $r->session()->forget('tdnet_auth');

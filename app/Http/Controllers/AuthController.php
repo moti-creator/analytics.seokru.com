@@ -22,6 +22,8 @@ class AuthController extends Controller
             ->scopes([
                 'https://www.googleapis.com/auth/analytics.readonly',
                 'https://www.googleapis.com/auth/webmasters.readonly',
+                'https://www.googleapis.com/auth/webmasters', // URL Inspection (read-write needed)
+                'https://www.googleapis.com/auth/indexing',   // Indexing API
             ])
             ->with(['access_type' => 'offline', 'prompt' => 'consent'])
             ->redirect();
