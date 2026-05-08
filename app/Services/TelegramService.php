@@ -34,6 +34,45 @@ class TelegramService
         return $resp->json();
     }
 
+    /**
+     * Post a URL to the configured public channel for indexing/backlink purposes.
+     * Returns the public t.me/{channel}/{message_id} URL on success.
+     *
+     * Set env TELEGRAM_BOOST_CHANNEL=@channelusername.
+     */
+    public function postToPublicChannel(string $url, ?string $caption = null): array
+    {
+        $channel = env('TELEGRAM_BOOST_CHANNEL');
+        if (!$channel || !$this->token) {
+            return ['ok' => false, 'reason' => 'TELEGRAM_BOOST_CHANNEL or bot token not set'];
+        }
+
+        $domain = parse_url($url, PHP_URL_HOST);
+        $caption = $caption ?: "Worth a look: <b>{$domain}</b>\n\n{$url}";
+
+        $res = $this->api('sendMessage', [
+            'chat_id' => $channel,
+            'text' => $caption,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => false,
+        ]);
+        if (!$res || !($res['ok'] ?? false)) {
+            return ['ok' => false, 'response' => $res];
+        }
+
+        $msg = $res['result'] ?? [];
+        $msgId = $msg['message_id'] ?? null;
+        $username = ltrim($channel, '@');
+        $postUrl = $msgId ? "https://t.me/{$username}/{$msgId}" : null;
+
+        return [
+            'ok' => true,
+            'post_url' => $postUrl,
+            'message_id' => $msgId,
+            'channel' => $channel,
+        ];
+    }
+
     public function sendMessage(string $chatId, string $text, array $extra = []): ?array
     {
         // Telegram HTML mode supports <b>, <i>, <a href>, <code>, <pre>. Strip unsupported tags.

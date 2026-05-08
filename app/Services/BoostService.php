@@ -27,6 +27,9 @@ class BoostService
         public WaybackService $wayback,
         public ArchiveTodayService $archiveToday,
         public WebSubService $webSub,
+        public GistService $gist,
+        public BlueskyService $bluesky,
+        public TelegramService $telegram,
     ) {}
 
     public function checkRateLimits(?Connection $conn, string $url): void
@@ -61,6 +64,9 @@ class BoostService
             'wayback' => true,
             'archive_today' => true,
             'websub' => true,
+            'gist' => true,
+            'bluesky' => true,
+            'telegram' => true,
         ], $channels);
 
         $this->checkRateLimits($conn, $url);
@@ -96,6 +102,21 @@ class BoostService
         if ($channels['websub']) {
             try { $sub->websub_result = $this->webSub->ping($url); }
             catch (\Throwable $e) { $sub->websub_result = ['ok' => false, 'error' => $e->getMessage()]; }
+        }
+
+        if ($channels['gist']) {
+            try { $sub->gist_result = $this->gist->publish($url); }
+            catch (\Throwable $e) { $sub->gist_result = ['ok' => false, 'error' => $e->getMessage()]; }
+        }
+
+        if ($channels['bluesky']) {
+            try { $sub->bluesky_result = $this->bluesky->post($url); }
+            catch (\Throwable $e) { $sub->bluesky_result = ['ok' => false, 'error' => $e->getMessage()]; }
+        }
+
+        if ($channels['telegram']) {
+            try { $sub->telegram_result = $this->telegram->postToPublicChannel($url); }
+            catch (\Throwable $e) { $sub->telegram_result = ['ok' => false, 'error' => $e->getMessage()]; }
         }
 
         $sub->save();

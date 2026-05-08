@@ -162,6 +162,57 @@ We'll re-check Google index status at 24h, 72h, and 7 days. Check back here for 
 </div>
 @endif
 
+{{-- GitHub Gist --}}
+@if($sub->gist_result)
+@php $g = $sub->gist_result; @endphp
+<div class="section">
+<h3>
+🐙 GitHub Gist
+<span class="status-pill {{ ($g['ok'] ?? false) ? 'status-ok' : 'status-warn' }}">{{ ($g['ok'] ?? false) ? 'Published' : ($g['reason'] ?? 'Skipped') }}</span>
+</h3>
+@if($g['gist_url'] ?? null)
+<p style="font-size:.88rem;color:#334155">Public gist created with link to your URL. github.com is crawled by Google in minutes.</p>
+<a href="{{ $g['gist_url'] }}" target="_blank" class="btn">View gist →</a>
+@elseif(!($g['ok'] ?? false))
+<p style="font-size:.88rem;color:#78350f">{{ $g['reason'] ?? $g['error'] ?? 'Failed.' }}</p>
+@endif
+</div>
+@endif
+
+{{-- Bluesky --}}
+@if($sub->bluesky_result)
+@php $bs = $sub->bluesky_result; @endphp
+<div class="section">
+<h3>
+🦋 Bluesky post
+<span class="status-pill {{ ($bs['ok'] ?? false) ? 'status-ok' : 'status-warn' }}">{{ ($bs['ok'] ?? false) ? 'Posted' : ($bs['reason'] ?? 'Skipped') }}</span>
+</h3>
+@if($bs['post_url'] ?? null)
+<p style="font-size:.88rem;color:#334155">Posted on Bluesky. Posts indexed by Google + Bing.</p>
+<a href="{{ $bs['post_url'] }}" target="_blank" class="btn">View post →</a>
+@elseif(!($bs['ok'] ?? false))
+<p style="font-size:.88rem;color:#78350f">{{ $bs['reason'] ?? $bs['error'] ?? 'Failed.' }}</p>
+@endif
+</div>
+@endif
+
+{{-- Telegram --}}
+@if($sub->telegram_result)
+@php $tg = $sub->telegram_result; @endphp
+<div class="section">
+<h3>
+✈ Telegram channel post
+<span class="status-pill {{ ($tg['ok'] ?? false) ? 'status-ok' : 'status-warn' }}">{{ ($tg['ok'] ?? false) ? 'Posted' : ($tg['reason'] ?? 'Skipped') }}</span>
+</h3>
+@if($tg['post_url'] ?? null)
+<p style="font-size:.88rem;color:#334155">Posted to public Telegram channel. t.me/ pages indexed by Google.</p>
+<a href="{{ $tg['post_url'] }}" target="_blank" class="btn">View post →</a>
+@elseif(!($tg['ok'] ?? false))
+<p style="font-size:.88rem;color:#78350f">{{ $tg['reason'] ?? 'Failed.' }}</p>
+@endif
+</div>
+@endif
+
 {{-- WebSub --}}
 @if($sub->websub_result)
 @php $ws = $sub->websub_result; @endphp

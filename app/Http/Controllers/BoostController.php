@@ -39,6 +39,9 @@ class BoostController extends Controller
                 'wayback' => $r->boolean('wayback', true),
                 'archive_today' => $r->boolean('archive_today', true),
                 'websub' => $r->boolean('websub', true),
+                'gist' => $r->boolean('gist', true),
+                'bluesky' => $r->boolean('bluesky', true),
+                'telegram' => $r->boolean('telegram', true),
             ]);
         } catch (\RuntimeException $e) {
             return back()->withErrors(['rate' => $e->getMessage()])->withInput();

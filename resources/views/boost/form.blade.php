@@ -106,6 +106,30 @@ button.submit:hover{background:#c2410c}
 </label>
 
 <label class="channel">
+<input type="checkbox" name="gist" value="1" checked>
+<div class="channel-info">
+<div class="channel-name">GitHub Gist <span class="tier-badge tier-pro">Real backlink</span></div>
+<div class="channel-desc">Auto-creates a public gist on github.com with the URL. github.com crawled by Google in minutes — gist becomes a real, persistent backlink. Requires GITHUB_GIST_TOKEN env.</div>
+</div>
+</label>
+
+<label class="channel">
+<input type="checkbox" name="bluesky" value="1" checked>
+<div class="channel-info">
+<div class="channel-name">Bluesky post <span class="tier-badge tier-pro">Real backlink</span></div>
+<div class="channel-desc">Posts on Bluesky via app password. Bluesky posts are crawled by Google + Bing within hours. Requires BLUESKY_HANDLE + BLUESKY_APP_PASSWORD.</div>
+</div>
+</label>
+
+<label class="channel">
+<input type="checkbox" name="telegram" value="1" checked>
+<div class="channel-info">
+<div class="channel-name">Telegram public channel <span class="tier-badge tier-pro">Real backlink</span></div>
+<div class="channel-desc">Posts URL to a public Telegram channel via bot. t.me/{channel}/{id} pages are indexed by Google. Requires TELEGRAM_BOOST_CHANNEL env.</div>
+</div>
+</label>
+
+<label class="channel">
 <input type="checkbox" name="websub" value="1" checked>
 <div class="channel-info">
 <div class="channel-name">WebSub feed ping <span class="tier-badge tier-free">Free</span></div>
