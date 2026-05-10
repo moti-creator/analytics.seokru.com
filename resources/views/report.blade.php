@@ -36,6 +36,27 @@ th{background:#f5f8ff}
 .past-list .past-date{color:#999;font-size:.8rem}
 .past-list .past-type{background:#f0f7ff;color:#1a73e8;font-size:.72rem;padding:2px 6px;border-radius:3px;margin-left:6px}
 </style>
+@if($isPdf ?? false)
+@php
+  $fontReg = 'file://' . str_replace('\\', '/', public_path('fonts/NotoSansHebrew-Regular.ttf'));
+  $fontBold = 'file://' . str_replace('\\', '/', public_path('fonts/NotoSansHebrew-Bold.ttf'));
+@endphp
+<style>
+@font-face {
+  font-family: 'notosanshebrew';
+  font-style: normal;
+  font-weight: 400;
+  src: url('{{ $fontReg }}') format('truetype');
+}
+@font-face {
+  font-family: 'notosanshebrew';
+  font-style: normal;
+  font-weight: 700;
+  src: url('{{ $fontBold }}') format('truetype');
+}
+body, h1, h2, h3, table, th, td, p, div, span, a { font-family: 'notosanshebrew', 'DejaVu Sans', sans-serif !important; }
+</style>
+@endif
 @if(($isPdf ?? false) && in_array($report->type, ['keyword_rankings', 'keyword_rankings_news']))
 <style>
 @page { size: A4 landscape; margin: 6mm; }

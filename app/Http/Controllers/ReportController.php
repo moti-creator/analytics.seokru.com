@@ -194,6 +194,12 @@ class ReportController extends Controller
         $this->ensureOwner($report);
         $report->load('connection');
         $pdf = Pdf::loadView('report', ['report' => $report, 'isPdf' => true]);
+        $pdf->setOptions([
+            'isRemoteEnabled' => true,
+            'isFontSubsettingEnabled' => true,
+            'isHtml5ParserEnabled' => true,
+            'defaultFont' => 'notosanshebrew',
+        ]);
         if (in_array($report->type, ['keyword_rankings', 'keyword_rankings_news'], true)) {
             $pdf->setPaper('a4', 'landscape');
         }
