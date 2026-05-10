@@ -199,7 +199,17 @@ class ReportController extends Controller
             'isFontSubsettingEnabled' => true,
             'isHtml5ParserEnabled' => true,
             'defaultFont' => 'notosanshebrew',
+            'chroot' => [base_path(), public_path()],
         ]);
+        $fontMetrics = $pdf->getDomPDF()->getFontMetrics();
+        $fontMetrics->registerFont(
+            ['family' => 'notosanshebrew', 'style' => 'normal', 'weight' => 'normal'],
+            public_path('fonts/NotoSansHebrew-Regular.ttf')
+        );
+        $fontMetrics->registerFont(
+            ['family' => 'notosanshebrew', 'style' => 'normal', 'weight' => 'bold'],
+            public_path('fonts/NotoSansHebrew-Bold.ttf')
+        );
         if (in_array($report->type, ['keyword_rankings', 'keyword_rankings_news'], true)) {
             $pdf->setPaper('a4', 'landscape');
         }
