@@ -219,8 +219,33 @@ $ga4Ready = $conn && $conn->ga4_property_id;
 {{-- ============ ACCORDION REPORTS ============ --}}
 <div class="accordion">
 
+{{-- ====== OVERVIEW ====== --}}
+<details class="acc-section acc-overview" open>
+<summary>
+<div class="acc-title">
+<span class="acc-icon">📈</span>
+<div class="acc-text">
+<h3>Overview — the big picture</h3>
+<p>What every marketer wants in 30 seconds. Up or down? Where from? Who?</p>
+</div>
+</div>
+<span class="acc-chev">▾</span>
+</summary>
+<div class="acc-body">
+<div class="grid">
+
+<a class="card card-hero @if(!$ga4Ready) card-gated @endif" href="{{ $ga4Ready ? route('generate.direct', 'traffic_snapshot') : '#' }}">
+<h4>Traffic Snapshot <span class="tag-new">NEW</span></h4>
+<p>Sessions, users, channels, devices — last 30 days vs previous. The one report you read first.</p>
+<span class="badge">GA4 + GSC</span>
+</a>
+
+</div>
+</div>
+</details>
+
 {{-- ====== DISCOVER ====== --}}
-<details class="acc-section acc-discover" open>
+<details class="acc-section acc-discover">
 <summary>
 <div class="acc-title">
 <span class="acc-icon">🔍</span>

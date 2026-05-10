@@ -23,6 +23,8 @@ class ReportBuilder
         'brand_rescue' => ['title' => 'Brand Rescue vs Real Growth', 'needs' => ['ga4','gsc']],
         'llm_traffic' => ['title' => 'LLM Traffic — Visitors from ChatGPT, Perplexity, Claude & Co.', 'needs' => ['ga4']],
         'new_referrers' => ['title' => 'New Referring Domains', 'needs' => ['ga4']],
+        // Traffic Overview — the 80/20 reports marketers actually need
+        'traffic_snapshot' => ['title' => 'Traffic Snapshot — The Big Picture', 'needs' => ['ga4']],
     ];
 
     /** Types that render their own narrative and skip the LLM pipeline. */
@@ -72,6 +74,7 @@ class ReportBuilder
                 'brand_rescue' => $this->brandRescue($g),
                 'llm_traffic' => $this->llmTraffic($g),
                 'new_referrers' => $this->newReferrers($g),
+                'traffic_snapshot' => $this->trafficSnapshot($g),
             };
             // Add source availability info so the LLM knows what data it has
             if ($check['missing']) {
@@ -890,6 +893,107 @@ class ReportBuilder
     }
 
     /**
+     * T1 — Traffic Snapshot. The 80/20 dashboard: is traffic up or down,
+     * where's it coming from, who's visiting. 30d cur vs 30d prev.
+     */
+    protected function trafficSnapshot(GoogleService $g): array
+    {
+        $pid = $this->conn->ga4_property_id;
+        $curEnd = now()->subDay()->toDateString();
+        $curStart = now()->subDays(30)->toDateString();
+        $prevEnd = now()->subDays(31)->toDateString();
+        $prevStart = now()->subDays(60)->toDateString();
+
+        $cur = $g->fetchGa4TrafficSnapshot($pid, $curStart, $curEnd);
+        $prev = $g->fetchGa4TrafficSnapshot($pid, $prevStart, $prevEnd);
+
+        $metricNames = ['sessions', 'totalUsers', 'newUsers', 'engagedSessions', 'averageSessionDuration', 'bounceRate', 'screenPageViews'];
+        $curT = $this->extractMetricRow($cur['totals'], $metricNames);
+        $prevT = $this->extractMetricRow($prev['totals'], $metricNames);
+
+        // KPI tiles — totals + delta % so the LLM and PDF show big numbers, not noise
+        $kpis = [];
+        foreach ($metricNames as $m) {
+            $decimals = in_array($m, ['averageSessionDuration', 'bounceRate', 'engagementRate']) ? 2 : 0;
+            $kpis[$m] = $this->delta($curT[$m] ?? 0, $prevT[$m] ?? 0, $decimals);
+        }
+        // Engaged sessions % is a derived ratio — more useful than raw count
+        $curES = ($curT['engagedSessions'] ?? 0) / max(1, $curT['sessions'] ?? 1);
+        $prevES = ($prevT['engagedSessions'] ?? 0) / max(1, $prevT['sessions'] ?? 1);
+        $kpis['engagedSessionsRate'] = $this->delta(round($curES * 100, 1), round($prevES * 100, 1), 1);
+
+        // Channel mix — current vs previous, with delta per channel
+        $curCh = $this->indexRowsBy($cur['channels']['rows'] ?? [], 'sessions');
+        $prevCh = $this->indexRowsBy($prev['channels']['rows'] ?? [], 'sessions');
+        $allChannels = array_unique(array_merge(array_keys($curCh), array_keys($prevCh)));
+        $channelMix = [];
+        foreach ($allChannels as $name) {
+            $c = (int)($curCh[$name] ?? 0);
+            $p = (int)($prevCh[$name] ?? 0);
+            $channelMix[] = [
+                'channel' => $name,
+                'sessions' => $c,
+                'prev_sessions' => $p,
+                'pct_change' => $p > 0 ? round((($c - $p) / $p) * 100, 1) : null,
+                'share_pct' => round(($c / max(1, $curT['sessions'] ?? 1)) * 100, 1),
+            ];
+        }
+        usort($channelMix, fn($a, $b) => $b['sessions'] <=> $a['sessions']);
+        $topChannel = $channelMix[0] ?? null;
+
+        // Weekly trend — bucket by yearWeek so chart shows 4-5 bars not 30 noisy points
+        $weekly = [];
+        foreach ($cur['weekly']['rows'] ?? [] as $r) {
+            $yw = $r['dimensionValues'][0]['value'] ?? '';
+            if ($yw === '') continue;
+            // GA4 yearWeek is "YYYYWW" — reformat to "WW" or short label
+            $label = strlen($yw) >= 6 ? 'W' . substr($yw, 4, 2) : $yw;
+            $weekly[] = ['week' => $label, 'sessions' => (int)($r['metricValues'][0]['value'] ?? 0)];
+        }
+
+        // Device split
+        $devices = [];
+        foreach ($cur['devices']['rows'] ?? [] as $r) {
+            $devices[] = [
+                'device' => $r['dimensionValues'][0]['value'] ?? '',
+                'sessions' => (int)($r['metricValues'][0]['value'] ?? 0),
+            ];
+        }
+
+        // GSC bonus block — clicks/impressions if site is connected
+        $gsc = null;
+        if (!empty($this->conn->gsc_site_url)) {
+            try {
+                $g1 = $g->fetchGsc($this->conn->gsc_site_url, $curStart, $curEnd);
+                $g2 = $g->fetchGsc($this->conn->gsc_site_url, $prevStart, $prevEnd);
+                $row1 = $g1['totals']['rows'][0] ?? null;
+                $row2 = $g2['totals']['rows'][0] ?? null;
+                if ($row1) {
+                    $gsc = [
+                        'clicks' => $this->delta((int)($row1['clicks'] ?? 0), (int)($row2['clicks'] ?? 0), 0),
+                        'impressions' => $this->delta((int)($row1['impressions'] ?? 0), (int)($row2['impressions'] ?? 0), 0),
+                        'ctr' => $this->delta(round(($row1['ctr'] ?? 0) * 100, 2), round(($row2['ctr'] ?? 0) * 100, 2), 2),
+                        'position' => $this->delta(round($row1['position'] ?? 0, 1), round($row2['position'] ?? 0, 1), 1),
+                    ];
+                }
+            } catch (\Throwable $e) {
+                // GSC optional — skip on failure
+            }
+        }
+
+        return [
+            'period_current' => "$curStart to $curEnd",
+            'period_previous' => "$prevStart to $prevEnd",
+            'kpis' => $kpis,
+            'top_channel' => $topChannel,
+            'channel_mix' => array_slice($channelMix, 0, 8),
+            'weekly_trend' => $weekly,
+            'devices' => $devices,
+            'gsc' => $gsc,
+        ];
+    }
+
+    /**
      * Generate a QuickChart.io <img> tag for embedding in LLM narrative.
      */
     protected function quickChart(string $chartType, array $labels, array $datasets, string $title = ''): string
@@ -976,6 +1080,28 @@ class ReportBuilder
                     }
                     break;
 
+                case 'traffic_snapshot':
+                    // Weekly bar chart — clean, totals not daily noise
+                    $weekly = $data['weekly_trend'] ?? [];
+                    if ($weekly) {
+                        $charts[] = $this->quickChart('bar',
+                            array_column($weekly, 'week'),
+                            [['label' => 'Sessions', 'data' => array_column($weekly, 'sessions'), 'backgroundColor' => '#3b82f6']],
+                            'Weekly Sessions Trend'
+                        );
+                    }
+                    // Channel mix doughnut — top 6 channels by share
+                    $cm = array_slice($data['channel_mix'] ?? [], 0, 6);
+                    if ($cm) {
+                        $charts[] = $this->quickChart('doughnut',
+                            array_column($cm, 'channel'),
+                            [['data' => array_column($cm, 'sessions'),
+                              'backgroundColor' => ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4']]],
+                            'Traffic by Channel'
+                        );
+                    }
+                    break;
+
                 case 'silent_winners':
                     $sw = array_slice($data['silent_winners'] ?? [], 0, 8);
                     if ($sw) {
@@ -1019,6 +1145,7 @@ class ReportBuilder
             'cannibalization' => "Report: KEYWORD CANNIBALIZATION (GA4+GSC join). Queries where multiple of your URLs fight for the same spot. Sections:\n<h2>Top conflicts</h2> table: query, URLs competing (with positions, clicks, and GA4 conversions per URL).\n<h2>Which URL should win</h2> for each conflict — pick the winner based on which URL actually converts. Name the loser, explain why.\n<h2>Fix actions</h2> per conflict: merge, redirect, de-optimize, or internal-link strategy.",
             'brand_rescue' => "Report: BRAND RESCUE vs REAL GROWTH (GA4+GSC join). All pct_change values are pre-computed — quote them exactly. A 'verdict' field summarises the pattern. Sections:\n<h2>Headline</h2> state brand clicks pct_change vs non-brand clicks pct_change, using the exact numbers. Interpret the 'verdict' field (non_brand_decaying_brand_masking = call out the hidden decay; genuine_growth = celebrate; brand_decay_reputation_check = warn; stable_both = boring-week; mixed = nuanced).\n<h2>The real picture</h2> include conversions_current for brand vs non-brand landing pages. Explain which is driving revenue.\n<h2>What to do</h2> 3 actions tailored to the verdict.",
             'new_referrers' => "Report: NEW REFERRING DOMAINS. Detects domains that started sending you referral traffic in the last 30 days, compared to a 90-day lookback baseline. All counts are pre-computed — quote exactly. If 'note' is set (no new referrers), lead with it. Sections:\n<h2>Headline</h2> totals.unique_new_domains new domains, totals.new_referrer_sessions_current sessions from them, totals.new_share_pct% of all referral traffic. Mention current period dates from period_current.\n<h2>The new domains</h2> table from new_referrers (top 30): source, sessions, users, conversions. Highlight any with conversions > 0 — those are real value, not just clicks.\n<h2>Returning referrers (context)</h2> table from top_returning_referrers (top 10): source, sessions, conversions. So user can compare new vs known.\n<h2>What to do</h2> 3 actions: (a) for the highest-traffic new domain, suggest visiting it to find the inbound link and consider relationship-building; (b) check that any high-traffic new referrer is legitimate (not bot/spam); (c) if any new domain converted, flag it as a potential partnership/PR opportunity.",
+            'traffic_snapshot' => "Report: TRAFFIC SNAPSHOT — the big-picture overview a marketer wants in 30 seconds. All numbers in 'kpis', 'channel_mix', and 'gsc' are pre-computed (current, previous, delta, pct_change). Quote them EXACTLY. Sections:\n<h2>Headline</h2> One sentence: 'Sessions [up X%/down X%/flat] vs previous 30 days.' Use kpis.sessions.pct_change. Mention the top_channel name and its pct_change.\n<h2>The numbers</h2> table with these rows: Sessions, Users, New users, Engaged sessions %, Pageviews, Avg session duration (sec), Bounce rate %. Columns: Current, Previous, Δ, Δ%. Use the pre-computed values from kpis. Format numbers with thousand separators.\n<h2>Where it came from</h2> table from channel_mix top 6: Channel, Sessions, Share %, Δ% vs previous. Highlight (in narrative below) any channel that moved more than 20%.\n<h2>Search performance</h2> ONLY if 'gsc' is not null — table: Clicks, Impressions, CTR %, Avg Position. Columns: Current, Previous, Δ%. Note: lower position is better, so a negative Δ on position = improvement.\n<h2>Devices</h2> one short sentence: dominant device + share. Skip the table.\n<h2>What to focus on</h2> 2-3 bullet recommendations. Tie each to a specific number above (e.g. 'Organic Search down 23% — investigate which pages dropped (run Content Decay report)'). Cross-link to relevant deeper reports by name when they apply.",
             'llm_traffic' => "Report: LLM TRAFFIC. Detects visitors arriving from AI chatbots/search (ChatGPT, Perplexity, Claude, Gemini, Copilot, etc.). All numbers in 'llm_totals' and 'per_llm' are pre-computed — quote exactly. If 'note' is set, lead with it. Sections:\n<h2>Headline</h2> total LLM sessions current, share_of_total_pct of all sessions, sessions_pct_change vs previous period. Be honest if numbers are tiny — LLM referral traffic is still small for most sites.\n<h2>Which LLMs are sending traffic</h2> table from per_llm: LLM name, sessions, users, conversions. Sort by sessions desc.\n<h2>Top landing pages from LLM traffic</h2> table from top_landing_pages: LLM, page, sessions, conversions. Show top 10.\n<h2>Conversational queries in Search Console</h2> if 'gsc_conversational_query_signals' has rows, table top 10 (query, impressions, clicks, position). Caveat: these are NOT confirmed LLM-driven — they are long/question-form queries which correlate with AI-search behavior. Useful as a 2nd signal.\n<h2>What this means + what to do</h2> 3 specific recommendations (e.g. content optimised for citation, schema for AI Overviews, tracking via UTMs from any AI experiments). If LLM share is 0%, focus on llms.txt + content structure for AI crawlability.",
         };
     }

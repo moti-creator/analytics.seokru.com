@@ -133,6 +133,57 @@ class GoogleService
     }
 
     /**
+     * Traffic snapshot — pulls everything T1 needs in one shot:
+     * totals (sessions, users, new users, engaged sessions, avg duration, bounce, pageviews),
+     * channel grouping breakdown, weekly trend, device split.
+     */
+    public function fetchGa4TrafficSnapshot(string $propertyId, string $start, string $end): array
+    {
+        $base = "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport";
+        $tok = $this->token();
+        $dateRange = [['startDate' => $start, 'endDate' => $end]];
+
+        $totals = Http::withToken($tok)->post($base, [
+            'dateRanges' => $dateRange,
+            'metrics' => [
+                ['name' => 'sessions'],
+                ['name' => 'totalUsers'],
+                ['name' => 'newUsers'],
+                ['name' => 'engagedSessions'],
+                ['name' => 'averageSessionDuration'],
+                ['name' => 'bounceRate'],
+                ['name' => 'screenPageViews'],
+            ],
+        ])->json();
+
+        $channels = Http::withToken($tok)->post($base, [
+            'dateRanges' => $dateRange,
+            'dimensions' => [['name' => 'sessionDefaultChannelGroup']],
+            'metrics' => [['name' => 'sessions'], ['name' => 'totalUsers']],
+            'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
+            'limit' => 10,
+        ])->json();
+
+        $weekly = Http::withToken($tok)->post($base, [
+            'dateRanges' => $dateRange,
+            'dimensions' => [['name' => 'yearWeek']],
+            'metrics' => [['name' => 'sessions']],
+            'orderBys' => [['dimension' => ['dimensionName' => 'yearWeek']]],
+            'limit' => 20,
+        ])->json();
+
+        $devices = Http::withToken($tok)->post($base, [
+            'dateRanges' => $dateRange,
+            'dimensions' => [['name' => 'deviceCategory']],
+            'metrics' => [['name' => 'sessions']],
+            'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
+            'limit' => 5,
+        ])->json();
+
+        return compact('totals', 'channels', 'weekly', 'devices');
+    }
+
+    /**
      * Query × month pivot for keyword rankings dashboard.
      * Pulls query+date rows (paginated if needed), aggregates position weighted
      * by impressions per query × YYYY-MM, ranks queries by total impressions desc.
