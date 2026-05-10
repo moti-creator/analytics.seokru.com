@@ -20,4 +20,14 @@ class Report extends Model
     public function getRouteKeyName(): string { return 'slug'; }
 
     public function connection() { return $this->belongsTo(Connection::class); }
+
+    /** Lazily mint a share token so the owner can hand the report URL to a colleague. */
+    public function ensureShareToken(): string
+    {
+        if (empty($this->share_token)) {
+            $this->share_token = Str::random(40);
+            $this->save();
+        }
+        return $this->share_token;
+    }
 }

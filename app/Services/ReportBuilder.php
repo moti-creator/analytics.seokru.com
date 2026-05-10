@@ -72,6 +72,7 @@ class ReportBuilder
                 'brand_rescue' => $this->brandRescue($g),
                 'llm_traffic' => $this->llmTraffic($g),
                 'new_referrers' => $this->newReferrers($g),
+                default => throw new \InvalidArgumentException("Unknown report type: {$type}"),
             };
             // Add source availability info so the LLM knows what data it has
             if ($check['missing']) {
@@ -247,9 +248,7 @@ class ReportBuilder
             ->post($url, ['startDate'=>$start,'endDate'=>$end,'dimensions'=>['query'],'rowLimit'=>5000])
             ->json('rows', []);
 
-        $host = parse_url($this->conn->gsc_site_url, PHP_URL_HOST) ?: $this->conn->gsc_site_url;
-        $brand = preg_replace('/^(www\.|sc-domain:)/', '', $host);
-        $brand = strtolower(explode('.', $brand)[0]);
+        $brand = $this->brandToken();
 
         $brandClicks = 0; $nonBrandClicks = 0; $brandImp = 0; $nonBrandImp = 0;
         $brandQs = []; $nonBrandQs = [];
@@ -441,9 +440,7 @@ class ReportBuilder
         $prevEnd = now()->subDays(31)->toDateString();
         $prevStart = now()->subDays(59)->toDateString();
 
-        $host = parse_url($this->conn->gsc_site_url, PHP_URL_HOST) ?: $this->conn->gsc_site_url;
-        $brand = preg_replace('/^(www\.|sc-domain:)/', '', $host);
-        $brand = strtolower(explode('.', $brand)[0]);
+        $brand = $this->brandToken();
 
         $classify = function ($rows) use ($brand) {
             $brandPages = []; $nonBrandPages = [];
@@ -526,17 +523,56 @@ class ReportBuilder
         return $path ?: $url;
     }
 
+    /**
+     * Extract a usable brand token from the GSC site URL.
+     * Strips www./sc-domain:, drops common public suffixes (com, co.uk, etc.),
+     * and returns the registrable label. Falls back to the longest non-trivial label.
+     */
+    protected function brandToken(): string
+    {
+        $host = parse_url($this->conn->gsc_site_url, PHP_URL_HOST) ?: $this->conn->gsc_site_url;
+        $host = preg_replace('/^(www\.|sc-domain:)/', '', strtolower($host));
+        $parts = array_values(array_filter(explode('.', $host), fn($p) => $p !== ''));
+        if (!$parts) return '';
+
+        // Two-level public suffixes we care about for common cases.
+        $two = ['co.uk','co.il','com.au','com.br','co.jp','co.kr','co.nz','co.za','com.mx','com.tr'];
+        $tld = ['com','net','org','io','co','app','blog','dev','ai','me','info','biz','shop','store','online','site','xyz','tech','news'];
+
+        $last2 = count($parts) >= 2 ? $parts[count($parts)-2] . '.' . $parts[count($parts)-1] : '';
+        if (in_array($last2, $two, true) && count($parts) >= 3) {
+            return $parts[count($parts)-3];
+        }
+        // Drop the TLD if it's a known generic, take label before it.
+        if (count($parts) >= 2 && in_array(end($parts), $tld, true)) {
+            return $parts[count($parts)-2];
+        }
+        // Fallback: longest label.
+        usort($parts, fn($a,$b) => strlen($b) <=> strlen($a));
+        return $parts[0];
+    }
+
     protected function ga4EngagementForPages(GoogleService $g, array $pages, string $start, string $end): array
     {
         if (!$pages || !$this->conn->ga4_property_id) return [];
+
+        // Server-side filter to only the candidate paths so we don't depend on
+        // the row limit hitting them (sites with >1000 landing pages otherwise miss).
+        $body = [
+            'dateRanges' => [['startDate'=>$start,'endDate'=>$end]],
+            'dimensions' => [['name'=>'landingPage']],
+            'metrics' => [['name'=>'sessions'],['name'=>'engagementRate'],['name'=>'bounceRate']],
+            'dimensionFilter' => [
+                'filter' => [
+                    'fieldName' => 'landingPage',
+                    'inListFilter' => ['values' => array_values(array_unique($pages))],
+                ],
+            ],
+            'limit' => max(count($pages) + 10, 100),
+        ];
         $resp = Http::withToken($g->publicToken())->post(
             "https://analyticsdata.googleapis.com/v1beta/properties/{$this->conn->ga4_property_id}:runReport",
-            [
-                'dateRanges' => [['startDate'=>$start,'endDate'=>$end]],
-                'dimensions' => [['name'=>'landingPage']],
-                'metrics' => [['name'=>'sessions'],['name'=>'engagementRate'],['name'=>'bounceRate']],
-                'limit' => 1000,
-            ]
+            $body
         )->json();
 
         $out = [];

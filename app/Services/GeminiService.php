@@ -5,6 +5,15 @@ namespace App\Services;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Single-shot LLM caller for ReportBuilder narratives.
+ *
+ * Backend choice differs from AgentService by design:
+ *   - Reports (here): Groq first (cheap, fast, no tool calls needed).
+ *   - Agent / ask (AgentService::pickBackend): Gemini first because tool-calling
+ *     quality and JSON schema adherence are stronger; falls over to Groq on 429.
+ * Keep both in sync only if you change the strategy globally.
+ */
 class GeminiService
 {
     public function raw(string $prompt): string

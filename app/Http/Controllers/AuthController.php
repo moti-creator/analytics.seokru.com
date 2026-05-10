@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
+use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use App\Models\Connection;
 use App\Models\ChatBinding;
+use App\Models\RememberToken;
 use App\Services\TelegramService;
 
 class AuthController extends Controller
@@ -49,7 +51,15 @@ class AuthController extends Controller
         session(['connection_id' => $conn->id]);
 
         // Remember cookie — 30 days — restore session across browser restarts.
-        Cookie::queue('remember_connection', (string) $conn->id, 60 * 24 * 30);
+        // Store a random token; persist only its hash. Cookie theft = 30d access
+        // until the token is rotated on next use, so we also rotate on each restore.
+        $raw = Str::random(48);
+        RememberToken::create([
+            'connection_id' => $conn->id,
+            'token_hash' => RememberToken::hash($raw),
+            'expires_at' => now()->addDays(30),
+        ]);
+        Cookie::queue('remember_connection', $raw, 60 * 24 * 30);
 
         // Telegram bot OAuth kickoff → bind chat and return a friendly page.
         if ($tgToken = session('tg_token')) {
@@ -86,6 +96,10 @@ class AuthController extends Controller
 
     public function logout(Request $r)
     {
+        $raw = $r->cookie('remember_connection');
+        if ($raw) {
+            RememberToken::where('token_hash', RememberToken::hash($raw))->delete();
+        }
         $r->session()->forget('connection_id');
         $r->session()->forget('report_type');
         $r->session()->forget('pending_prompt');

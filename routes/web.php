@@ -15,10 +15,10 @@ Route::view('/about', 'legal.about')->name('about');
 Route::view('/legal/privacy', 'legal.privacy');
 Route::view('/legal/terms', 'legal.terms');
 Route::get('/start/{type}', [ReportController::class, 'start'])->name('start');
-Route::post('/ask/start', [ReportController::class, 'askStart'])->name('ask.start');
+Route::post('/ask/start', [ReportController::class, 'askStart'])->middleware('throttle:10,1')->name('ask.start');
 
-Route::get('/auth/google', [AuthController::class, 'redirect']);
-Route::get('/auth/google/callback', [AuthController::class, 'callback']);
+Route::get('/auth/google', [AuthController::class, 'redirect'])->middleware('throttle:30,1');
+Route::get('/auth/google/callback', [AuthController::class, 'callback'])->middleware('throttle:30,1');
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::get('/connect', [ReportController::class, 'connectForm'])->name('connect');
@@ -30,7 +30,7 @@ Route::post('/dashboard/property', [ReportController::class, 'updateProperty'])-
 Route::get('/generate/{type}', [ReportController::class, 'generateDirect'])->name('generate.direct');
 
 Route::get('/ask', [AskController::class, 'form'])->name('ask.form');
-Route::post('/ask', [AskController::class, 'run'])->name('ask.run');
+Route::post('/ask', [AskController::class, 'run'])->middleware('throttle:10,1')->name('ask.run');
 Route::get('/ask/clarify', [AskController::class, 'clarifyForm'])->name('ask.clarify');
 Route::post('/ask/clarify', [AskController::class, 'clarifySubmit'])->name('ask.clarify.submit');
 Route::post('/ask/saved', [AskController::class, 'saveQuery'])->name('ask.save');
@@ -41,7 +41,7 @@ Route::get('/r/{report:slug}/pdf', [ReportController::class, 'pdf'])->name('repo
 
 // Boost Visibility — fast indexing (IndexNow + Google Indexing API + llms.txt)
 Route::get('/boost', [\App\Http\Controllers\BoostController::class, 'form'])->name('boost.form');
-Route::post('/boost', [\App\Http\Controllers\BoostController::class, 'submit'])->name('boost.submit');
+Route::post('/boost', [\App\Http\Controllers\BoostController::class, 'submit'])->middleware('throttle:5,1')->name('boost.submit');
 Route::get('/boost/{boost}', [\App\Http\Controllers\BoostController::class, 'show'])->name('boost.show');
 Route::get('/boost/{boost}/indexnow-key', [\App\Http\Controllers\BoostController::class, 'downloadIndexNowKey'])->name('boost.indexnow.key');
 

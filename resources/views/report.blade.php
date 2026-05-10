@@ -100,10 +100,18 @@ Generated {{ $report->created_at->format('M j, Y H:i') }}
             $cleanNarrative
         );
     }
+    $cleanNarrative = \App\Support\HtmlSanitizer::clean($cleanNarrative);
 @endphp
 
 <a href="{{ route('report.pdf', $report) }}" class="btn">Download PDF</a>
 <a href="/" class="btn btn-sec">← Run another report</a>
+@php
+    $isOwner = (int) session('connection_id') === (int) $report->connection_id;
+@endphp
+@if($isOwner)
+    @php $shareUrl = route('report.show', $report) . '?t=' . $report->ensureShareToken(); @endphp
+    <button type="button" class="btn btn-sec" onclick="navigator.clipboard.writeText('{{ $shareUrl }}');this.textContent='Copied ✓'">Copy share link</button>
+@endif
 
 {!! $cleanNarrative !!}
 

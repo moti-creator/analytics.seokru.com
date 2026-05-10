@@ -182,16 +182,16 @@ class ReportController extends Controller
         return redirect()->route('report.show', $report);
     }
 
-    public function show(Report $report)
+    public function show(Report $report, Request $request)
     {
-        $this->ensureOwner($report);
+        $this->ensureViewable($report, $request);
         $report->load('connection');
         return view('report', compact('report'));
     }
 
-    public function pdf(Report $report)
+    public function pdf(Report $report, Request $request)
     {
-        $this->ensureOwner($report);
+        $this->ensureViewable($report, $request);
         $report->load('connection');
         $pdf = Pdf::loadView('report', ['report' => $report, 'isPdf' => true]);
         $pdf->setOptions([
@@ -222,5 +222,18 @@ class ReportController extends Controller
         if (!$sid || (int)$sid !== (int)$report->connection_id) {
             abort(403, 'You must be signed in with the Google account that created this report.');
         }
+    }
+
+    /** Owner OR a valid share token in ?t= can view. */
+    protected function ensureViewable(Report $report, Request $request): void
+    {
+        $sid = session('connection_id');
+        if ($sid && (int)$sid === (int)$report->connection_id) return;
+
+        $token = (string) $request->query('t', '');
+        if ($token !== '' && $report->share_token && hash_equals($report->share_token, $token)) {
+            return;
+        }
+        abort(403, 'This report is private. Ask the owner for a share link or sign in with the account that created it.');
     }
 }

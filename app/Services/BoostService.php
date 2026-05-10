@@ -22,6 +22,15 @@ class BoostService
     public const MAX_PER_USER_PER_WEEK = 10;
     public const MAX_PER_DOMAIN_PER_DAY = 5;
 
+    /**
+     * Wallclock budget for the synchronous fan-out across all channels.
+     * Cloudways PHP-FPM max_execution_time is typically 120s; leave headroom
+     * so the response can render and the BoostSubmission row saves.
+     * Channels exceeding the budget get a deferred-result marker and can be
+     * retried later (or moved to a queue worker once Supervisor is configured).
+     */
+    public const WALLCLOCK_BUDGET_SECONDS = 60;
+
     public function __construct(
         public IndexNowService $indexNow,
         public WaybackService $wayback,
@@ -79,45 +88,33 @@ class BoostService
             'domain' => $domain,
         ]);
 
-        if ($channels['indexnow']) {
-            $sub->indexnow_result = $this->indexNow->submit($url);
-        }
+        $deadline = microtime(true) + self::WALLCLOCK_BUDGET_SECONDS;
+        $skipped = ['ok' => false, 'reason' => 'skipped: wallclock budget exhausted, retry later'];
+        $run = function (string $col, callable $fn) use (&$sub, $deadline, $skipped) {
+            if (microtime(true) >= $deadline) {
+                $sub->{$col} = $skipped;
+                return;
+            }
+            try { $sub->{$col} = $fn(); }
+            catch (\Throwable $e) { $sub->{$col} = ['ok' => false, 'error' => $e->getMessage()]; }
+        };
 
-        if ($channels['indexing_api'] && $conn && $conn->access_token) {
-            $sub->indexing_api_result = $this->callIndexingApi($conn, $url);
-        } else {
-            $sub->indexing_api_result = ['ok' => false, 'reason' => 'No Google connection or scope not granted. Re-authenticate to enable.'];
+        // Fast / authoritative channels first so partial completion is still useful.
+        if ($channels['indexnow'])     $run('indexnow_result',     fn() => $this->indexNow->submit($url));
+        if ($channels['indexing_api']) {
+            if ($conn && $conn->access_token) {
+                $run('indexing_api_result', fn() => $this->callIndexingApi($conn, $url));
+            } else {
+                $sub->indexing_api_result = ['ok' => false, 'reason' => 'No Google connection or scope not granted. Re-authenticate to enable.'];
+            }
         }
-
-        if ($channels['wayback']) {
-            try { $sub->wayback_result = $this->wayback->save($url); }
-            catch (\Throwable $e) { $sub->wayback_result = ['ok' => false, 'error' => $e->getMessage()]; }
-        }
-
-        if ($channels['archive_today']) {
-            try { $sub->archive_today_result = $this->archiveToday->save($url); }
-            catch (\Throwable $e) { $sub->archive_today_result = ['ok' => false, 'error' => $e->getMessage()]; }
-        }
-
-        if ($channels['websub']) {
-            try { $sub->websub_result = $this->webSub->ping($url); }
-            catch (\Throwable $e) { $sub->websub_result = ['ok' => false, 'error' => $e->getMessage()]; }
-        }
-
-        if ($channels['gist']) {
-            try { $sub->gist_result = $this->gist->publish($url); }
-            catch (\Throwable $e) { $sub->gist_result = ['ok' => false, 'error' => $e->getMessage()]; }
-        }
-
-        if ($channels['bluesky']) {
-            try { $sub->bluesky_result = $this->bluesky->post($url); }
-            catch (\Throwable $e) { $sub->bluesky_result = ['ok' => false, 'error' => $e->getMessage()]; }
-        }
-
-        if ($channels['telegram']) {
-            try { $sub->telegram_result = $this->telegram->postToPublicChannel($url); }
-            catch (\Throwable $e) { $sub->telegram_result = ['ok' => false, 'error' => $e->getMessage()]; }
-        }
+        if ($channels['websub'])       $run('websub_result',       fn() => $this->webSub->ping($url));
+        if ($channels['wayback'])      $run('wayback_result',      fn() => $this->wayback->save($url));
+        if ($channels['gist'])         $run('gist_result',         fn() => $this->gist->publish($url));
+        if ($channels['bluesky'])      $run('bluesky_result',      fn() => $this->bluesky->post($url));
+        if ($channels['telegram'])     $run('telegram_result',     fn() => $this->telegram->postToPublicChannel($url));
+        // archive.today last — high latency and frequently 429/403 from server IPs.
+        if ($channels['archive_today']) $run('archive_today_result', fn() => $this->archiveToday->save($url));
 
         $sub->save();
         return $sub;
