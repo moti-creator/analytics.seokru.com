@@ -234,9 +234,15 @@ $ga4Ready = $conn && $conn->ga4_property_id;
 <div class="acc-body">
 <div class="grid">
 
-<a class="card card-hero @if(!$ga4Ready) card-gated @endif" href="{{ $ga4Ready ? route('generate.direct', 'traffic_snapshot') : '#' }}">
-<h4>Traffic Snapshot <span class="tag-new">NEW</span></h4>
-<p>Sessions, users, channels, devices — last 30 days vs previous. The one report you read first.</p>
+<a class="card card-hero @if(!$ga4Ready || !$gscReady) card-gated @endif" href="{{ ($ga4Ready && $gscReady) ? route('generate.direct', 'site_overview') : '#' }}">
+<h4>Site Overview <span class="tag-new">NEW</span></h4>
+<p>One screen, all signals. KPIs, new queries, winners, losers, new pages, new referrers, 404s, striking distance. The morning briefing.</p>
+<span class="badge">GA4 × GSC</span>
+</a>
+
+<a class="card @if(!$ga4Ready) card-gated @endif" href="{{ $ga4Ready ? route('generate.direct', 'traffic_snapshot') : '#' }}">
+<h4>Traffic Snapshot</h4>
+<p>Sessions, users, channels, devices — last 30 days vs previous.</p>
 <span class="badge">GA4 + GSC</span>
 </a>
 

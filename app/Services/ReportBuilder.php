@@ -25,10 +25,11 @@ class ReportBuilder
         'new_referrers' => ['title' => 'New Referring Domains', 'needs' => ['ga4']],
         // Traffic Overview — the 80/20 reports marketers actually need
         'traffic_snapshot' => ['title' => 'Traffic Snapshot — The Big Picture', 'needs' => ['ga4']],
+        'site_overview' => ['title' => 'Site Overview — All Signals at a Glance', 'needs' => ['ga4','gsc']],
     ];
 
     /** Types that render their own narrative and skip the LLM pipeline. */
-    protected const PREBUILT_TYPES = ['keyword_rankings', 'keyword_rankings_news'];
+    protected const PREBUILT_TYPES = ['keyword_rankings', 'keyword_rankings_news', 'site_overview'];
 
     public function __construct(public Connection $conn) {}
 
@@ -994,6 +995,403 @@ class ReportBuilder
     }
 
     /**
+     * Site Overview — Pareto consolidated dashboard. Prebuilt (no LLM).
+     * Pulls GA4 + GSC top signals, renders cards in one screen.
+     * 7d vs prior 7d window, with 21d lookback for "new" detection.
+     */
+    protected function siteOverview(GoogleService $g): array
+    {
+        $pid = $this->conn->ga4_property_id;
+        $site = $this->conn->gsc_site_url;
+        $tok = $g->publicToken();
+        $end = now()->subDays(3)->toDateString();           // GSC lag buffer
+        $start = now()->subDays(9)->toDateString();         // 7d
+        $prevEnd = now()->subDays(10)->toDateString();
+        $prevStart = now()->subDays(16)->toDateString();
+        $lookbackEnd = now()->subDays(10)->toDateString();
+        $lookbackStart = now()->subDays(30)->toDateString(); // 21d prior baseline
+
+        $ga4Base = "https://analyticsdata.googleapis.com/v1beta/properties/{$pid}:runReport";
+        $gscUrl = 'https://www.googleapis.com/webmasters/v3/sites/' . urlencode($site) . '/searchAnalytics/query';
+
+        // --- 1. KPIs: GA4 + GSC totals, 7d vs prior 7d
+        $ga4Cur = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $start, 'endDate' => $end]],
+            'metrics' => [['name' => 'sessions'], ['name' => 'totalUsers'], ['name' => 'newUsers'], ['name' => 'screenPageViews']],
+        ])->json();
+        $ga4Prev = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $prevStart, 'endDate' => $prevEnd]],
+            'metrics' => [['name' => 'sessions'], ['name' => 'totalUsers'], ['name' => 'newUsers'], ['name' => 'screenPageViews']],
+        ])->json();
+        $gaMetrics = ['sessions', 'totalUsers', 'newUsers', 'screenPageViews'];
+        $curT = $this->extractMetricRow($ga4Cur, $gaMetrics);
+        $prevT = $this->extractMetricRow($ga4Prev, $gaMetrics);
+
+        $gscCurTot = Http::withToken($tok)->post($gscUrl, ['startDate' => $start, 'endDate' => $end, 'dimensions' => []])->json('rows.0', []);
+        $gscPrevTot = Http::withToken($tok)->post($gscUrl, ['startDate' => $prevStart, 'endDate' => $prevEnd, 'dimensions' => []])->json('rows.0', []);
+
+        $kpis = [
+            'sessions' => $this->delta($curT['sessions'] ?? 0, $prevT['sessions'] ?? 0),
+            'users' => $this->delta($curT['totalUsers'] ?? 0, $prevT['totalUsers'] ?? 0),
+            'new_users' => $this->delta($curT['newUsers'] ?? 0, $prevT['newUsers'] ?? 0),
+            'pageviews' => $this->delta($curT['screenPageViews'] ?? 0, $prevT['screenPageViews'] ?? 0),
+            'gsc_clicks' => $this->delta((int)($gscCurTot['clicks'] ?? 0), (int)($gscPrevTot['clicks'] ?? 0)),
+            'gsc_impressions' => $this->delta((int)($gscCurTot['impressions'] ?? 0), (int)($gscPrevTot['impressions'] ?? 0)),
+            'gsc_ctr' => $this->delta(round(($gscCurTot['ctr'] ?? 0) * 100, 2), round(($gscPrevTot['ctr'] ?? 0) * 100, 2), 2),
+            'gsc_position' => $this->delta(round($gscCurTot['position'] ?? 0, 1), round($gscPrevTot['position'] ?? 0, 1), 1),
+        ];
+
+        // --- 2. New search queries (GSC cur vs prior 21d)
+        $gscQueriesCur = Http::withToken($tok)->post($gscUrl, [
+            'startDate' => $start, 'endDate' => $end, 'dimensions' => ['query'], 'rowLimit' => 1000,
+        ])->json('rows', []);
+        $gscQueriesPrior = Http::withToken($tok)->post($gscUrl, [
+            'startDate' => $lookbackStart, 'endDate' => $lookbackEnd, 'dimensions' => ['query'], 'rowLimit' => 5000,
+        ])->json('rows', []);
+        $priorQuerySet = array_flip(array_map(fn($r) => $r['keys'][0], $gscQueriesPrior));
+        $newQueries = [];
+        foreach ($gscQueriesCur as $r) {
+            $q = $r['keys'][0];
+            if (!isset($priorQuerySet[$q]) && ($r['impressions'] ?? 0) >= 5) {
+                $newQueries[] = [
+                    'query' => $q,
+                    'impressions' => (int)$r['impressions'],
+                    'clicks' => (int)$r['clicks'],
+                    'position' => round($r['position'] ?? 0, 1),
+                ];
+            }
+        }
+        usort($newQueries, fn($a, $b) => $b['impressions'] <=> $a['impressions']);
+        $newQueries = array_slice($newQueries, 0, 15);
+
+        // --- 3+4. Top winners / losers (GA4 pagePath sessions cur vs prev)
+        $pagesCur = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $start, 'endDate' => $end]],
+            'dimensions' => [['name' => 'pagePath']],
+            'metrics' => [['name' => 'sessions']],
+            'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
+            'limit' => 200,
+        ])->json('rows', []);
+        $pagesPrev = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $prevStart, 'endDate' => $prevEnd]],
+            'dimensions' => [['name' => 'pagePath']],
+            'metrics' => [['name' => 'sessions']],
+            'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
+            'limit' => 200,
+        ])->json('rows', []);
+        $prevPageMap = [];
+        foreach ($pagesPrev as $r) {
+            $prevPageMap[$r['dimensionValues'][0]['value']] = (int)$r['metricValues'][0]['value'];
+        }
+        $pageDeltas = [];
+        foreach ($pagesCur as $r) {
+            $p = $r['dimensionValues'][0]['value'];
+            $c = (int)$r['metricValues'][0]['value'];
+            $pv = $prevPageMap[$p] ?? 0;
+            $delta = $c - $pv;
+            $pct = $pv > 0 ? round(($delta / $pv) * 100, 1) : null;
+            $pageDeltas[] = ['page' => $p, 'sessions' => $c, 'prev_sessions' => $pv, 'delta' => $delta, 'pct_change' => $pct];
+        }
+        // also catch pages with traffic only in prev (full drop)
+        foreach ($pagesPrev as $r) {
+            $p = $r['dimensionValues'][0]['value'];
+            if (!isset(array_flip(array_column($pageDeltas, 'page'))[$p])) {
+                $pv = (int)$r['metricValues'][0]['value'];
+                if ($pv >= 10) {
+                    $pageDeltas[] = ['page' => $p, 'sessions' => 0, 'prev_sessions' => $pv, 'delta' => -$pv, 'pct_change' => -100];
+                }
+            }
+        }
+        $winners = array_values(array_filter($pageDeltas, fn($r) => $r['delta'] > 5));
+        usort($winners, fn($a, $b) => $b['delta'] <=> $a['delta']);
+        $winners = array_slice($winners, 0, 10);
+
+        $losers = array_values(array_filter($pageDeltas, fn($r) => $r['delta'] < -5));
+        usort($losers, fn($a, $b) => $a['delta'] <=> $b['delta']);
+        $losers = array_slice($losers, 0, 10);
+
+        // New pages — sessions ≥10 cur, zero prev
+        $newPages = array_values(array_filter($pageDeltas, fn($r) => $r['prev_sessions'] === 0 && $r['sessions'] >= 10));
+        usort($newPages, fn($a, $b) => $b['sessions'] <=> $a['sessions']);
+        $newPages = array_slice($newPages, 0, 10);
+
+        // --- 5. New referring domains (GA4 sessionSource cur 7d vs prior 30d)
+        $refCur = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $start, 'endDate' => $end]],
+            'dimensions' => [['name' => 'sessionSource'], ['name' => 'sessionMedium']],
+            'metrics' => [['name' => 'sessions']],
+            'orderBys' => [['metric' => ['metricName' => 'sessions'], 'desc' => true]],
+            'limit' => 200,
+        ])->json('rows', []);
+        $refPrior = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $lookbackStart, 'endDate' => $lookbackEnd]],
+            'dimensions' => [['name' => 'sessionSource']],
+            'metrics' => [['name' => 'sessions']],
+            'limit' => 500,
+        ])->json('rows', []);
+        $priorSrcSet = [];
+        foreach ($refPrior as $r) {
+            $priorSrcSet[$r['dimensionValues'][0]['value']] = true;
+        }
+        $newReferrers = [];
+        foreach ($refCur as $r) {
+            $src = $r['dimensionValues'][0]['value'];
+            $med = $r['dimensionValues'][1]['value'] ?? '';
+            if (in_array($med, ['referral', 'social', 'organic']) && !isset($priorSrcSet[$src]) && $src !== '(direct)' && $src !== '(not set)') {
+                $newReferrers[] = [
+                    'source' => $src,
+                    'medium' => $med,
+                    'sessions' => (int)$r['metricValues'][0]['value'],
+                ];
+            }
+        }
+        $newReferrers = array_slice($newReferrers, 0, 15);
+
+        // --- 6. Error pages (GA4 pagePath/title heuristic)
+        $errors = [];
+        foreach ($pagesCur as $r) {
+            $p = $r['dimensionValues'][0]['value'];
+            if (preg_match('/(404|not.?found|error|500)/i', $p)) {
+                $errors[] = ['page' => $p, 'sessions' => (int)$r['metricValues'][0]['value']];
+            }
+        }
+        usort($errors, fn($a, $b) => $b['sessions'] <=> $a['sessions']);
+        $errors = array_slice($errors, 0, 10);
+
+        // --- 7. Striking distance (GSC pos 4-20, ≥50 impr)
+        $striking = [];
+        foreach ($gscQueriesCur as $r) {
+            $pos = $r['position'] ?? 0;
+            if ($pos >= 4 && $pos <= 20 && ($r['impressions'] ?? 0) >= 50) {
+                $striking[] = [
+                    'query' => $r['keys'][0],
+                    'impressions' => (int)$r['impressions'],
+                    'clicks' => (int)$r['clicks'],
+                    'ctr' => round(($r['ctr'] ?? 0) * 100, 2),
+                    'position' => round($pos, 1),
+                ];
+            }
+        }
+        usort($striking, fn($a, $b) => $b['impressions'] <=> $a['impressions']);
+        $striking = array_slice($striking, 0, 10);
+
+        // --- 8. Channel shifts (GA4 channel grouping cur vs prev, ≥25% Δ)
+        $chCur = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $start, 'endDate' => $end]],
+            'dimensions' => [['name' => 'sessionDefaultChannelGroup']],
+            'metrics' => [['name' => 'sessions']],
+            'limit' => 15,
+        ])->json('rows', []);
+        $chPrev = Http::withToken($tok)->post($ga4Base, [
+            'dateRanges' => [['startDate' => $prevStart, 'endDate' => $prevEnd]],
+            'dimensions' => [['name' => 'sessionDefaultChannelGroup']],
+            'metrics' => [['name' => 'sessions']],
+            'limit' => 15,
+        ])->json('rows', []);
+        $chPrevMap = [];
+        foreach ($chPrev as $r) {
+            $chPrevMap[$r['dimensionValues'][0]['value']] = (int)$r['metricValues'][0]['value'];
+        }
+        $channelShifts = [];
+        foreach ($chCur as $r) {
+            $name = $r['dimensionValues'][0]['value'];
+            $c = (int)$r['metricValues'][0]['value'];
+            $p = $chPrevMap[$name] ?? 0;
+            if ($c < 5 && $p < 5) continue;
+            $pct = $p > 0 ? round((($c - $p) / $p) * 100, 1) : ($c > 0 ? 999 : 0);
+            if (abs($pct) >= 25) {
+                $channelShifts[] = ['channel' => $name, 'sessions' => $c, 'prev_sessions' => $p, 'pct_change' => $pct];
+            }
+        }
+        usort($channelShifts, fn($a, $b) => abs($b['pct_change']) <=> abs($a['pct_change']));
+
+        $data = [
+            'type' => 'site_overview',
+            'title' => self::TYPES['site_overview']['title'],
+            'metrics' => [
+                'site' => $site,
+                'ga4_property' => $pid,
+                'period_current' => "$start to $end",
+                'period_previous' => "$prevStart to $prevEnd",
+                'lookback' => "$lookbackStart to $lookbackEnd",
+                'kpis' => $kpis,
+                'new_queries' => $newQueries,
+                'winners' => $winners,
+                'losers' => $losers,
+                'new_pages' => $newPages,
+                'new_referrers' => $newReferrers,
+                'errors' => $errors,
+                'striking_distance' => $striking,
+                'channel_shifts' => $channelShifts,
+            ],
+            'narrative' => $this->renderSiteOverviewHtml($site, $start, $end, $prevStart, $prevEnd, $kpis, $newQueries, $winners, $losers, $newPages, $newReferrers, $errors, $striking, $channelShifts),
+        ];
+        return $data;
+    }
+
+    protected function renderSiteOverviewHtml(string $site, string $start, string $end, string $prevStart, string $prevEnd, array $kpis, array $newQueries, array $winners, array $losers, array $newPages, array $newReferrers, array $errors, array $striking, array $channelShifts): string
+    {
+        $h = htmlspecialchars($site);
+        $html = <<<CSS
+<style>
+.so-wrap{font-size:.92rem}
+.so-period{color:#666;font-size:.85rem;margin-bottom:1em}
+.so-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:1em 0}
+.so-kpi{background:#f8fafc;border:1px solid #e3e8ee;border-radius:8px;padding:12px}
+.so-kpi-label{color:#666;font-size:.75rem;text-transform:uppercase;letter-spacing:.5px}
+.so-kpi-val{font-size:1.5rem;font-weight:700;color:#1a73e8;margin:2px 0}
+.so-kpi-delta{font-size:.8rem;font-weight:600}
+.so-up{color:#059669}.so-down{color:#dc2626}.so-flat{color:#666}
+.so-card{background:#fff;border:1px solid #e3e8ee;border-radius:8px;padding:14px 18px;margin:1em 0}
+.so-card h3{margin:0 0 .6em;font-size:1rem;color:#1a73e8;border-bottom:1px solid #f0f0f0;padding-bottom:6px}
+.so-card .so-empty{color:#999;font-style:italic;font-size:.88rem}
+.so-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.so-table th,.so-table td{padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:left}
+.so-table th{background:#f8fafc;color:#555;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.3px}
+.so-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.so-table td.q{max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.so-error-card{background:#fff5f5;border-color:#fecaca}
+.so-error-card h3{color:#dc2626}
+</style>
+CSS;
+
+        $html .= '<div class="so-wrap">';
+        $html .= '<p class="so-period"><b>' . $h . '</b> · Last 7 days (' . $start . ' → ' . $end . ') vs previous 7 days (' . $prevStart . ' → ' . $prevEnd . ')</p>';
+
+        // KPIs
+        $html .= '<div class="so-kpis">';
+        $kpiLabels = [
+            'sessions' => 'Sessions', 'users' => 'Users', 'new_users' => 'New Users', 'pageviews' => 'Pageviews',
+            'gsc_clicks' => 'GSC Clicks', 'gsc_impressions' => 'GSC Impressions', 'gsc_ctr' => 'GSC CTR %', 'gsc_position' => 'Avg Position',
+        ];
+        foreach ($kpiLabels as $key => $label) {
+            $k = $kpis[$key] ?? null;
+            if (!$k) continue;
+            $pct = $k['pct_change'];
+            // Position is inverted: lower is better
+            $isPos = $key === 'gsc_position';
+            $cls = $pct === null ? 'so-flat' : (($pct > 0) === !$isPos ? 'so-up' : 'so-down');
+            if ($pct === 0) $cls = 'so-flat';
+            $arrow = $pct === null ? '—' : ($pct > 0 ? '▲' : ($pct < 0 ? '▼' : '·'));
+            $pctStr = $pct === null ? 'no prior data' : ($pct > 0 ? '+' : '') . $pct . '%';
+            $html .= '<div class="so-kpi"><div class="so-kpi-label">' . $label . '</div>'
+                . '<div class="so-kpi-val">' . number_format($k['current'], $key === 'gsc_ctr' || $key === 'gsc_position' ? 1 : 0) . '</div>'
+                . '<div class="so-kpi-delta ' . $cls . '">' . $arrow . ' ' . $pctStr . '</div></div>';
+        }
+        $html .= '</div>';
+
+        // Errors — show first if present
+        if ($errors) {
+            $html .= '<div class="so-card so-error-card"><h3>⚠️ Error Pages Getting Traffic</h3>'
+                . '<table class="so-table"><thead><tr><th>Page</th><th class="num">Sessions</th></tr></thead><tbody>';
+            foreach ($errors as $e) {
+                $html .= '<tr><td class="q">' . htmlspecialchars($e['page']) . '</td><td class="num">' . number_format($e['sessions']) . '</td></tr>';
+            }
+            $html .= '</tbody></table></div>';
+        }
+
+        // Channel shifts
+        if ($channelShifts) {
+            $html .= '<div class="so-card"><h3>🔀 Channel Shifts (≥25% Δ)</h3>'
+                . '<table class="so-table"><thead><tr><th>Channel</th><th class="num">Sessions</th><th class="num">Prev</th><th class="num">Δ%</th></tr></thead><tbody>';
+            foreach ($channelShifts as $c) {
+                $cls = $c['pct_change'] > 0 ? 'so-up' : 'so-down';
+                $html .= '<tr><td>' . htmlspecialchars($c['channel']) . '</td>'
+                    . '<td class="num">' . number_format($c['sessions']) . '</td>'
+                    . '<td class="num">' . number_format($c['prev_sessions']) . '</td>'
+                    . '<td class="num ' . $cls . '">' . ($c['pct_change'] >= 999 ? 'NEW' : ($c['pct_change'] > 0 ? '+' : '') . $c['pct_change'] . '%') . '</td></tr>';
+            }
+            $html .= '</tbody></table></div>';
+        }
+
+        // New queries
+        $html .= '<div class="so-card"><h3>✨ New Search Queries (first seen this week)</h3>';
+        if ($newQueries) {
+            $html .= '<table class="so-table"><thead><tr><th>Query</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">Pos</th></tr></thead><tbody>';
+            foreach ($newQueries as $q) {
+                $html .= '<tr><td class="q">' . htmlspecialchars($q['query']) . '</td>'
+                    . '<td class="num">' . number_format($q['impressions']) . '</td>'
+                    . '<td class="num">' . number_format($q['clicks']) . '</td>'
+                    . '<td class="num">' . $q['position'] . '</td></tr>';
+            }
+            $html .= '</tbody></table>';
+        } else {
+            $html .= '<p class="so-empty">No new queries this week.</p>';
+        }
+        $html .= '</div>';
+
+        // Winners + Losers in 2 cards
+        $html .= '<div class="so-card"><h3>📈 Top Page Winners (sessions gained)</h3>';
+        if ($winners) {
+            $html .= '<table class="so-table"><thead><tr><th>Page</th><th class="num">Sessions</th><th class="num">Prev</th><th class="num">Δ</th></tr></thead><tbody>';
+            foreach ($winners as $w) {
+                $html .= '<tr><td class="q">' . htmlspecialchars($w['page']) . '</td>'
+                    . '<td class="num">' . number_format($w['sessions']) . '</td>'
+                    . '<td class="num">' . number_format($w['prev_sessions']) . '</td>'
+                    . '<td class="num so-up">+' . number_format($w['delta']) . '</td></tr>';
+            }
+            $html .= '</tbody></table>';
+        } else {
+            $html .= '<p class="so-empty">No notable page gains.</p>';
+        }
+        $html .= '</div>';
+
+        $html .= '<div class="so-card"><h3>📉 Top Page Losers (sessions lost)</h3>';
+        if ($losers) {
+            $html .= '<table class="so-table"><thead><tr><th>Page</th><th class="num">Sessions</th><th class="num">Prev</th><th class="num">Δ</th></tr></thead><tbody>';
+            foreach ($losers as $l) {
+                $html .= '<tr><td class="q">' . htmlspecialchars($l['page']) . '</td>'
+                    . '<td class="num">' . number_format($l['sessions']) . '</td>'
+                    . '<td class="num">' . number_format($l['prev_sessions']) . '</td>'
+                    . '<td class="num so-down">' . number_format($l['delta']) . '</td></tr>';
+            }
+            $html .= '</tbody></table>';
+        } else {
+            $html .= '<p class="so-empty">No notable page drops.</p>';
+        }
+        $html .= '</div>';
+
+        // New pages
+        if ($newPages) {
+            $html .= '<div class="so-card"><h3>🆕 New Pages with Traffic</h3>'
+                . '<table class="so-table"><thead><tr><th>Page</th><th class="num">Sessions</th></tr></thead><tbody>';
+            foreach ($newPages as $p) {
+                $html .= '<tr><td class="q">' . htmlspecialchars($p['page']) . '</td><td class="num">' . number_format($p['sessions']) . '</td></tr>';
+            }
+            $html .= '</tbody></table></div>';
+        }
+
+        // New referrers
+        if ($newReferrers) {
+            $html .= '<div class="so-card"><h3>🔗 New Referring Sources</h3>'
+                . '<table class="so-table"><thead><tr><th>Source</th><th>Medium</th><th class="num">Sessions</th></tr></thead><tbody>';
+            foreach ($newReferrers as $r) {
+                $html .= '<tr><td>' . htmlspecialchars($r['source']) . '</td>'
+                    . '<td>' . htmlspecialchars($r['medium']) . '</td>'
+                    . '<td class="num">' . number_format($r['sessions']) . '</td></tr>';
+            }
+            $html .= '</tbody></table></div>';
+        }
+
+        // Striking distance
+        if ($striking) {
+            $html .= '<div class="so-card"><h3>🎯 Striking Distance (rank 4–20, high impressions)</h3>'
+                . '<table class="so-table"><thead><tr><th>Query</th><th class="num">Impr.</th><th class="num">Clicks</th><th class="num">CTR%</th><th class="num">Pos</th></tr></thead><tbody>';
+            foreach ($striking as $s) {
+                $html .= '<tr><td class="q">' . htmlspecialchars($s['query']) . '</td>'
+                    . '<td class="num">' . number_format($s['impressions']) . '</td>'
+                    . '<td class="num">' . number_format($s['clicks']) . '</td>'
+                    . '<td class="num">' . $s['ctr'] . '</td>'
+                    . '<td class="num">' . $s['position'] . '</td></tr>';
+            }
+            $html .= '</tbody></table></div>';
+        }
+
+        $html .= '</div>';
+        return $html;
+    }
+
+    /**
      * Generate a QuickChart.io <img> tag for embedding in LLM narrative.
      */
     protected function quickChart(string $chartType, array $labels, array $datasets, string $title = ''): string
@@ -1158,6 +1556,7 @@ class ReportBuilder
         return match($type) {
             'keyword_rankings' => $this->keywordRankings($g, 'web'),
             'keyword_rankings_news' => $this->keywordRankings($g, 'news'),
+            'site_overview' => $this->siteOverview($g),
         };
     }
 
