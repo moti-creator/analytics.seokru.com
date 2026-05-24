@@ -48,10 +48,22 @@ Route::get('/boost/{boost}/indexnow-key', [\App\Http\Controllers\BoostController
 // Telegram bot webhook — CSRF exempted via VerifyCsrfToken::$except
 Route::post('/webhooks/telegram', [TelegramWebhookController::class, 'handle'])->name('webhook.telegram');
 
-// TDNet outreach dashboard
+// Koshka — Meta Ads manager for Daniela (Google OAuth gated)
+Route::get('/koshka/auth/google', [\App\Http\Controllers\KoshkaController::class, 'authRedirect']);
+Route::get('/koshka/auth/google/callback', [\App\Http\Controllers\KoshkaController::class, 'authCallback']);
+Route::post('/koshka/logout', [\App\Http\Controllers\KoshkaController::class, 'logout'])->name('koshka.logout');
+
+Route::middleware(['koshka.auth'])->group(function () {
+    Route::get('/koshka', [\App\Http\Controllers\KoshkaController::class, 'index'])->name('koshka.index');
+    Route::post('/koshka/chat', [\App\Http\Controllers\KoshkaController::class, 'chat'])->name('koshka.chat');
+});
+
+// TDNet outreach dashboard — Google OAuth gated (allowlist)
+Route::get('/tdnet/auth/google', [\App\Http\Controllers\TdnetController::class, 'authRedirect']);
+Route::get('/tdnet/auth/google/callback', [\App\Http\Controllers\TdnetController::class, 'authCallback']);
+
 Route::middleware(['tdnet.auth'])->group(function () {
     Route::get('/tdnet', [\App\Http\Controllers\TdnetController::class, 'index'])->name('tdnet.index');
-    Route::post('/tdnet', [\App\Http\Controllers\TdnetController::class, 'index']); // login form post
     Route::get('/tdnet/leads/{lead}', [\App\Http\Controllers\TdnetController::class, 'show']);
     Route::post('/tdnet/leads/{lead}/generate', [\App\Http\Controllers\TdnetController::class, 'generate']);
     Route::post('/tdnet/leads/{lead}/regenerate-body', [\App\Http\Controllers\TdnetController::class, 'regenerateBody']);
@@ -60,9 +72,11 @@ Route::middleware(['tdnet.auth'])->group(function () {
     Route::post('/tdnet/leads/{lead}/skip', [\App\Http\Controllers\TdnetController::class, 'markSkipped']);
     Route::post('/tdnet/leads/{lead}/replied', [\App\Http\Controllers\TdnetController::class, 'markReplied']);
     Route::post('/tdnet/leads/{lead}/status', [\App\Http\Controllers\TdnetController::class, 'setStatus']);
+    Route::post('/tdnet/leads/{lead}/refresh-profile', [\App\Http\Controllers\TdnetController::class, 'refreshProfile']);
+    Route::post('/tdnet/leads/{lead}/refind-email', [\App\Http\Controllers\TdnetController::class, 'refindEmail']);
     Route::post('/tdnet/source', [\App\Http\Controllers\TdnetController::class, 'source']);
     Route::post('/tdnet/logout', function (\Illuminate\Http\Request $r) {
-        $r->session()->forget('tdnet_auth');
+        $r->session()->forget(['tdnet_email', 'tdnet_name', 'tdnet_auth']);
         return redirect('/tdnet');
     })->name('tdnet.logout');
 });

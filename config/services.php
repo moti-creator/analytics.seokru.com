@@ -60,5 +60,10 @@ return [
     'token' => env('APIFY_TOKEN'),
 ],
 
+'anthropic' => [
+    'key' => env('ANTHROPIC_API_KEY'),
+    'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-4-6'),
+],
+
 
 ];

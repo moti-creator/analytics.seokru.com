@@ -65,5 +65,6 @@ class Kernel extends HttpKernel
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'tdnet.auth' => \App\Http\Middleware\TdnetAuth::class,
+        'koshka.auth' => \App\Http\Middleware\KoshkaAuth::class,
     ];
 }
