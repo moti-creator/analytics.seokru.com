@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"><title>{{ $report->title ?? 'Report' }}</title>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ $report->title ?? 'Report' }}</title>
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
@@ -55,6 +55,7 @@ th{background:#f5f8ff}
   src: url('{{ $fontBold }}') format('truetype');
 }
 body, h1, h2, h3, table, th, td, p, div, span, a { font-family: 'notosanshebrew', 'DejaVu Sans', sans-serif !important; }
+table.kr-pivot tbody td.q, table.kr-pivot thead th.q { direction: rtl !important; text-align: right !important; }
 </style>
 @endif
 @if(($isPdf ?? false) && in_array($report->type, ['keyword_rankings', 'keyword_rankings_news']))

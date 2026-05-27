@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
 <title>SEOKRU Analytics — GA4 + Search Console in one plain-English report</title>
 <meta name="description" content="Ask any question about your site's traffic. We join Google Analytics 4 with Search Console data and answer in plain English. In 60 seconds.">
@@ -234,9 +235,9 @@ $ga4Ready = $conn && $conn->ga4_property_id;
 <div class="acc-body">
 <div class="grid">
 
-<a class="card card-hero @if(!$ga4Ready || !$gscReady) card-gated @endif" href="{{ ($ga4Ready && $gscReady) ? route('generate.direct', 'site_overview') : '#' }}">
+<a class="card card-hero @if(!$conn) card-gated @endif" href="{{ $conn ? route('overview.picker') : '#' }}">
 <h4>Site Overview <span class="tag-new">NEW</span></h4>
-<p>One screen, all signals. KPIs, new queries, winners, losers, new pages, new referrers, 404s, striking distance. The morning briefing.</p>
+<p>Pick a site → one screen, all signals. KPIs, new queries, winners, losers, new pages, new referrers, 404s, striking distance. The morning briefing.</p>
 <span class="badge">GA4 × GSC</span>
 </a>
 

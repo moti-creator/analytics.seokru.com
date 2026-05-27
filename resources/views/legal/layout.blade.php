@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
 <title>@yield('title', 'SEOKRU Analytics')</title>
 <meta name="description" content="@yield('description', 'SEOKRU Analytics — GA4 + Search Console in plain English.')">
