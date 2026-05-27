@@ -17,3 +17,14 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+
+# Secrets hygiene (global rules)
+*.local.*
+.env*
+*-keys
+*creds*
+*service-account*.json
+gsc*.json
+.secrets/*
+!.secrets/.gitkeep
+!.secrets/README.md
