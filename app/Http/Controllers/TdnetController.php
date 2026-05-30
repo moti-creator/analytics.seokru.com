@@ -2,20 +2,55 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Middleware\TdnetAuth;
 use App\Models\TdnetLead;
+use App\Services\ApifyService;
 use App\Services\GroqService;
 use Illuminate\Http\Request;
+use Laravel\Socialite\Facades\Socialite;
 
 class TdnetController extends Controller
 {
+    /** Kick off Google OAuth with minimal scopes (identity only). */
+    public function authRedirect()
+    {
+        return Socialite::driver('google')
+            ->redirectUrl(url('/tdnet/auth/google/callback'))
+            ->scopes(['email', 'profile'])
+            ->with(['prompt' => 'select_account'])
+            ->redirect();
+    }
+
+    /** OAuth callback — validate email against allowlist. */
+    public function authCallback(Request $request)
+    {
+        try {
+            $g = Socialite::driver('google')
+                ->redirectUrl(url('/tdnet/auth/google/callback'))
+                ->user();
+        } catch (\Throwable $e) {
+            $request->session()->flash('tdnet_login_error', 'Google sign-in failed: ' . $e->getMessage());
+            return redirect('/tdnet');
+        }
+
+        $email = strtolower((string) $g->getEmail());
+        if (!$email || !TdnetAuth::isAllowed($email)) {
+            $request->session()->flash('tdnet_login_error', "Email `{$email}` is not on the TDNet allowlist.");
+            return redirect('/tdnet');
+        }
+
+        $request->session()->put('tdnet_email', $email);
+        $request->session()->put('tdnet_name', $g->getName() ?: $email);
+        return redirect('/tdnet');
+    }
+
     public function index(Request $request)
     {
         $q = TdnetLead::query();
 
-        if ($s = $request->query('status')) {
+        $s = $request->query('status', 'new');
+        if ($s && $s !== 'all') {
             $q->where('status', $s);
-        } else {
-            $q->where('status', 'new');
         }
         if ($c = $request->query('country')) {
             $q->where('country', 'like', "%{$c}%");
@@ -25,6 +60,9 @@ class TdnetController extends Controller
         }
         if ($seg = $request->query('segment')) {
             $q->where('segment', $seg);
+        }
+        if ($eq = $request->query('email_quality')) {
+            $q->where('email_quality', $eq);
         }
 
         $leads = $q->orderByDesc('id')->limit(100)->get();
@@ -134,11 +172,145 @@ class TdnetController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function setStatus(Request $request, TdnetLead $lead)
+    {
+        $status = $request->input('status');
+        if (!in_array($status, ['new', 'sent', 'replied', 'skipped'])) {
+            return response()->json(['error' => 'invalid status'], 422);
+        }
+        $update = ['status' => $status];
+        if ($status === 'sent' && !$lead->sent_at) $update['sent_at'] = now();
+        $lead->update($update);
+        return response()->json(['ok' => true, 'status' => $status]);
+    }
+
+    /**
+     * Re-scrape current LinkedIn profile and update position/company.
+     * Also flags email quality if company has changed.
+     */
+    public function refreshProfile(TdnetLead $lead, ApifyService $apify)
+    {
+        if (!$apify->available()) return response()->json(['error' => 'Apify not configured'], 503);
+        if (!$lead->linkedin_url)  return response()->json(['error' => 'no linkedin_url on lead'], 422);
+
+        $items = $apify->runSync('harvestapi/linkedin-profile-scraper', [
+            'profileScraperMode' => 'Profile details no email ($4 per 1k)',
+            'queries' => [$lead->linkedin_url],
+        ], 180);
+
+        if (empty($items)) {
+            return response()->json(['error' => 'LinkedIn scraper returned nothing'], 502);
+        }
+        $p = $items[0];
+
+        $exp = $p['experience'][0] ?? null;
+        $newCompany = $exp['companyName'] ?? null;
+        $newPosition = $p['headline'] ?? ($exp['title'] ?? null);
+        $linkedinCountry = ($p['location']['linkedinText'] ?? null);
+        // last segment of "City, Region, Country" → country
+        if ($linkedinCountry && str_contains($linkedinCountry, ',')) {
+            $parts = array_map('trim', explode(',', $linkedinCountry));
+            $linkedinCountry = end($parts);
+        }
+
+        $changes = [];
+        if ($newPosition && $newPosition !== $lead->position) {
+            $changes['position'] = $newPosition;
+        }
+        if ($newCompany && strcasecmp($newCompany, (string)$lead->company) !== 0) {
+            $changes['company'] = $newCompany;
+            // Re-assess email quality against new company
+            $domain = strtolower(substr($lead->email, strrpos($lead->email, '@') + 1));
+            $changes['email_quality'] = 'stale';
+            $changes['email_quality_reason'] = "Job changed: now at `{$newCompany}` — email `{$lead->email}` is at `{$domain}`. Find new address.";
+        }
+        if ($linkedinCountry && strcasecmp($linkedinCountry, (string)$lead->country) !== 0) {
+            $changes['country'] = $linkedinCountry;
+        }
+        $changes['refreshed_at'] = now();
+
+        $lead->update($changes);
+
+        return response()->json([
+            'ok' => true,
+            'changes' => array_keys(array_diff_key($changes, ['refreshed_at' => 1])),
+            'lead' => $lead->fresh(),
+        ]);
+    }
+
+    /**
+     * Re-find email using clearpath/email-finder-api with current company name.
+     * Updates email + quality on success.
+     */
+    public function refindEmail(TdnetLead $lead, ApifyService $apify)
+    {
+        if (!$apify->available()) return response()->json(['error' => 'Apify not configured'], 503);
+        if (!$lead->first_name || !$lead->last_name) {
+            return response()->json(['error' => 'first_name and last_name required'], 422);
+        }
+        if (!$lead->company) {
+            return response()->json(['error' => 'company required to derive domain'], 422);
+        }
+
+        $items = $apify->runSync('clearpath/email-finder-api', [
+            'people' => [[
+                'firstName' => $lead->first_name,
+                'surname'   => $lead->last_name,
+                'domain'    => $lead->company, // clearpath resolves company name → domain
+            ]],
+            'mode' => 'expanded',
+        ], 180);
+
+        if (empty($items)) {
+            return response()->json(['error' => 'email-finder returned nothing'], 502);
+        }
+        $r = $items[0];
+        $status = $r['status'] ?? 'not_found';
+        $foundEmail = $r['email'] ?? null;
+
+        if ($status !== 'found' || !$foundEmail) {
+            return response()->json([
+                'ok' => false,
+                'reason' => "Could not find verified email at {$lead->company}.",
+                'detail' => $r,
+            ]);
+        }
+
+        // Map clearpath validationStatus → our enum
+        $valStatus = $r['validationStatus'] ?? null;
+        $isSafe = $r['isSafeToSend'] ?? false;
+        $quality = match (true) {
+            $isSafe && $valStatus === 'safe' => 'ok',
+            $valStatus === 'catch_all'       => 'unknown',
+            default                          => 'unknown',
+        };
+        $reason = $valStatus
+            ? "Re-found via clearpath: {$valStatus}, score " . ($r['overallScore'] ?? '?')
+            : null;
+
+        $lead->update([
+            'email' => $foundEmail,
+            'email_quality' => $quality,
+            'email_quality_reason' => $reason,
+        ]);
+
+        return response()->json([
+            'ok' => true,
+            'email' => $foundEmail,
+            'email_quality' => $quality,
+            'detail' => $r,
+        ]);
+    }
+
     public function source(Request $request)
     {
         $count = (int) ($request->input('count', 10));
         $count = max(5, min(50, $count));
-        \Artisan::call('tdnet:source', ['--count' => $count]);
+        $args = ['--count' => $count];
+        if ($country = $request->input('country')) {
+            $args['--country'] = [$country];
+        }
+        \Artisan::call('tdnet:source', $args);
         return response()->json([
             'ok' => true,
             'output' => \Artisan::output(),

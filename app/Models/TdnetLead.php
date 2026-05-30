@@ -14,6 +14,7 @@ class TdnetLead extends Model
         'source_meta' => 'array',
         'subject_variants' => 'array',
         'sent_at' => 'datetime',
+        'refreshed_at' => 'datetime',
     ];
 
     public function fullName(): string

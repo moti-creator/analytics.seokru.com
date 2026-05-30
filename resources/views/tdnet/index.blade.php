@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <title>TDNet Outreach Dashboard</title>
 <meta name="csrf-token" content="{{ csrf_token() }}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 *{box-sizing:border-box}
 body{font-family:system-ui,sans-serif;margin:0;padding:0;color:#222;background:#fafafa}
@@ -32,8 +33,19 @@ tr.is-skipped{background:#fffbeb;opacity:.7}
 .pill.academic{background:#f5f3ff;color:#5b21b6}
 .pill.pharma{background:#fdf2f8;color:#9d174d}
 .pill.corporate{background:#f3f4f6;color:#374151}
+.eq{display:inline-block;padding:2px 7px;border-radius:10px;font-size:.7rem;font-weight:700;letter-spacing:.02em}
+.eq.ok{background:#d1fae5;color:#065f46}
+.eq.stale{background:#fee2e2;color:#991b1b}
+.eq.invalid{background:#fef3c7;color:#92400e}
+.eq.unknown{background:#e5e7eb;color:#374151}
+.eq-help{cursor:help}
 .linkedin{color:#1a73e8;font-size:.78rem;text-decoration:none}
 .linkedin:hover{text-decoration:underline}
+.status-select{padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:.78rem;font-weight:600;cursor:pointer;background:#fff}
+.status-select.status-new{background:#dbeafe;color:#1e40af;border-color:#93c5fd}
+.status-select.status-sent{background:#d1fae5;color:#065f46;border-color:#6ee7b7}
+.status-select.status-skipped{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+.status-select.status-replied{background:#ede9fe;color:#5b21b6;border-color:#c4b5fd}
 .empty{text-align:center;padding:40px 20px;color:#888}
 
 /* Drawer */
@@ -71,6 +83,39 @@ textarea:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,11
 @keyframes spin{to{transform:rotate(360deg)}}
 .close{position:absolute;top:14px;right:18px;background:none;border:none;font-size:1.6rem;cursor:pointer;color:#888;line-height:1}
 .close:hover{color:#222}
+
+/* Table horizontal scroll on narrow viewports */
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:8px}
+.table-wrap table{min-width:980px}
+
+/* Mobile breakpoint */
+@media (max-width:768px){
+  .wrap{padding:14px 12px}
+  .topbar{padding:10px 14px}
+  .brand{font-size:1rem}
+  .counts{font-size:.78rem;width:100%}
+  .counts span{padding:3px 8px;font-size:.75rem}
+  .toolbar{gap:6px}
+  .toolbar input,.toolbar select{font-size:.82rem;padding:6px 8px;min-width:0;flex:1 1 130px}
+  .toolbar .spacer{display:none}
+  .toolbar button{padding:8px 12px;font-size:.85rem;width:100%;margin-top:4px}
+  th,td{padding:8px 10px;font-size:.82rem}
+  .drawer{width:100vw;padding:16px;padding-top:48px}
+  .drawer .info{grid-template-columns:80px 1fr}
+  .drawer h2{font-size:1.05rem}
+  textarea{min-height:200px}
+  .actions{position:sticky;bottom:0;background:#fff;padding:10px 0;margin:14px -16px 0;padding:10px 16px;border-top:1px solid #eee;z-index:1}
+  .actions .btn{flex:1 1 calc(50% - 4px);font-size:.78rem;padding:8px 10px}
+  #src-modal{width:92vw;padding:18px;max-height:90vh;overflow-y:auto}
+}
+@media (max-width:480px){
+  .topbar{padding:8px 10px;gap:6px}
+  .topbar .right{width:100%;display:flex;justify-content:flex-end}
+  .counts{order:3}
+  .drawer .info{grid-template-columns:1fr;gap:2px}
+  .drawer .info b{margin-top:6px}
+  .subjects{max-height:200px}
+}
 </style>
 </head>
 <body>
@@ -83,7 +128,8 @@ textarea:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,11
     <span class="skipped">Skipped: {{ $counts['skipped'] }}</span>
     <span>Replied: {{ $counts['replied'] }}</span>
   </div>
-  <div>
+  <div style="display:flex;align-items:center;gap:8px">
+    @if(session('tdnet_email'))<span style="font-size:.8rem;color:#666">{{ session('tdnet_email') }}</span>@endif
     <form method="POST" action="/tdnet/logout" style="display:inline">@csrf
       <button class="btn">Sign out</button>
     </form>
@@ -94,10 +140,11 @@ textarea:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,11
 
 <form method="GET" class="toolbar">
   <select name="status">
-    <option value="new" {{ request('status','new')==='new'?'selected':'' }}>New</option>
-    <option value="sent" {{ request('status')==='sent'?'selected':'' }}>Sent</option>
-    <option value="skipped" {{ request('status')==='skipped'?'selected':'' }}>Skipped</option>
-    <option value="replied" {{ request('status')==='replied'?'selected':'' }}>Replied</option>
+    <option value="new" {{ request('status','new')==='new'?'selected':'' }}>Status: New</option>
+    <option value="sent" {{ request('status')==='sent'?'selected':'' }}>Status: Sent</option>
+    <option value="skipped" {{ request('status')==='skipped'?'selected':'' }}>Status: Skipped</option>
+    <option value="replied" {{ request('status')==='replied'?'selected':'' }}>Status: Replied</option>
+    <option value="all" {{ request('status')==='all'?'selected':'' }}>Status: All</option>
   </select>
   <select name="country">
     <option value="">Country (all)</option>
@@ -111,15 +158,71 @@ textarea:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,11
       <option value="{{ $s }}" {{ request('segment')===$s?'selected':'' }}>{{ ucfirst($s) }}</option>
     @endforeach
   </select>
+  <select name="email_quality">
+    <option value="">Email quality (all)</option>
+    <option value="ok"      {{ request('email_quality')==='ok'?'selected':'' }}>Email: OK</option>
+    <option value="stale"   {{ request('email_quality')==='stale'?'selected':'' }}>Email: Stale</option>
+    <option value="invalid" {{ request('email_quality')==='invalid'?'selected':'' }}>Email: Invalid</option>
+    <option value="unknown" {{ request('email_quality')==='unknown'?'selected':'' }}>Email: Unknown</option>
+  </select>
   <input type="text" name="company" placeholder="Company contains…" value="{{ request('company') }}">
   <button class="ghost" type="submit">Filter</button>
   <div class="spacer"></div>
-  <button type="button" class="btn-primary" onclick="loadMore()" id="load-more-btn" style="background:#10b981;color:#fff;border-color:#10b981">+ Load 10 leads</button>
+  <button type="button" class="btn-primary" onclick="openSourceModal()" id="load-more-btn" style="background:#10b981;color:#fff;border-color:#10b981">+ Load leads</button>
 </form>
 
+<!-- Source modal -->
+<div class="drawer-bg" id="src-bg" onclick="closeSourceModal()"></div>
+<div id="src-modal" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:12px;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,.2);z-index:70;width:480px;max-width:92vw">
+  <h3 style="margin:0 0 .15em;font-size:1.15rem">Source new leads</h3>
+  <p style="color:#666;font-size:.85rem;margin:0 0 1.2em">Pulls from Apify Leads Finder using TDNet ICP titles + healthcare/pharma/academic industries. Validated emails only.</p>
+
+  <label style="font-size:.78rem;color:#555;display:block;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Country</label>
+  <select id="src-country" style="width:100%;padding:8px 10px;border:1px solid #cfd8e3;border-radius:8px;font-size:.9rem;margin-bottom:14px">
+    <option value="">All non-US (UK, DE, NL, FR, SE, CH, AU, CA, IL, SG, JP)</option>
+    <option value="united kingdom">United Kingdom</option>
+    <option value="germany">Germany</option>
+    <option value="netherlands">Netherlands</option>
+    <option value="france">France</option>
+    <option value="sweden">Sweden</option>
+    <option value="switzerland">Switzerland</option>
+    <option value="australia">Australia</option>
+    <option value="canada">Canada</option>
+    <option value="israel">Israel</option>
+    <option value="singapore">Singapore</option>
+    <option value="japan">Japan</option>
+    <option value="ireland">Ireland</option>
+    <option value="denmark">Denmark</option>
+    <option value="norway">Norway</option>
+    <option value="finland">Finland</option>
+    <option value="belgium">Belgium</option>
+    <option value="austria">Austria</option>
+    <option value="italy">Italy</option>
+    <option value="spain">Spain</option>
+    <option value="portugal">Portugal</option>
+    <option value="south korea">South Korea</option>
+    <option value="hong kong">Hong Kong</option>
+    <option value="south africa">South Africa</option>
+    <option value="united arab emirates">United Arab Emirates</option>
+  </select>
+
+  <label style="font-size:.78rem;color:#555;display:block;margin-bottom:4px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">How many?</label>
+  <select id="src-count" style="width:100%;padding:8px 10px;border:1px solid #cfd8e3;border-radius:8px;font-size:.9rem;margin-bottom:18px">
+    <option value="10">10 leads</option>
+    <option value="20">20 leads</option>
+    <option value="50">50 leads</option>
+  </select>
+
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn" onclick="closeSourceModal()">Cancel</button>
+    <button class="btn btn-primary" onclick="loadMore()" id="src-go">Source leads</button>
+  </div>
+</div>
+
 @if($leads->isEmpty())
-  <div class="empty">No leads yet. Click <b>+ Load 10 leads</b> to source from Apify.</div>
+  <div class="empty">No leads yet. Click <b>+ Load leads</b> to source from Apify.</div>
 @else
+<div class="table-wrap">
 <table>
   <thead>
     <tr>
@@ -130,7 +233,9 @@ textarea:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,11
       <th>Country</th>
       <th>Seg</th>
       <th>Email</th>
+      <th>Quality</th>
       <th>LinkedIn</th>
+      <th>Status</th>
     </tr>
   </thead>
   <tbody>
@@ -145,11 +250,24 @@ textarea:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,11
         <td>{{ $lead->country }}</td>
         <td>@if($lead->segment)<span class="pill {{ $lead->segment }}">{{ ucfirst($lead->segment) }}</span>@endif</td>
         <td style="font-size:.78rem">{{ $lead->email }}</td>
+        <td>
+          @php $q = $lead->email_quality ?? 'unknown'; @endphp
+          <span class="eq {{ $q }} eq-help" title="{{ $lead->email_quality_reason ?? '' }}">{{ strtoupper($q) }}</span>
+        </td>
         <td>@if($lead->linkedin_url)<a class="linkedin" href="{{ $lead->linkedin_url }}" target="_blank" onclick="event.stopPropagation()">↗ profile</a>@endif</td>
+        <td onclick="event.stopPropagation()">
+          <select class="status-select status-{{ $lead->status }}" data-id="{{ $lead->id }}" onchange="setStatus(this)">
+            <option value="new"     {{ $lead->status==='new'?'selected':'' }}>New</option>
+            <option value="sent"    {{ $lead->status==='sent'?'selected':'' }}>Sent</option>
+            <option value="replied" {{ $lead->status==='replied'?'selected':'' }}>Replied</option>
+            <option value="skipped" {{ $lead->status==='skipped'?'selected':'' }}>Skipped</option>
+          </select>
+        </td>
       </tr>
     @endforeach
   </tbody>
 </table>
+</div>
 @endif
 
 </div>
@@ -161,6 +279,12 @@ textarea:focus{outline:none;border-color:#1a73e8;box-shadow:0 0 0 3px rgba(26,11
   <div class="meta" id="d-meta">—</div>
 
   <div class="info" id="d-info"></div>
+
+  <div class="row" style="margin:8px 0 0">
+    <button class="btn" onclick="refreshProfile()" id="d-refresh-btn">↻ Refresh from LinkedIn</button>
+    <button class="btn" onclick="refindEmail()" id="d-refind-btn">📧 Find better email</button>
+  </div>
+  <div id="d-refresh-status" style="font-size:.8rem;color:#666;margin:6px 0"></div>
 
   <div class="row">
     <div>
@@ -236,12 +360,17 @@ async function openDrawer(id) {
   document.getElementById('d-meta').textContent = `${lead.position || ''} · ${lead.company || ''} · ${lead.country || ''}`;
 
   const info = document.getElementById('d-info');
+  const q = lead.email_quality || 'unknown';
+  const qReason = lead.email_quality_reason || '';
+  const refreshed = lead.refreshed_at ? `<span style="color:#888;font-size:.8em"> · refreshed ${new Date(lead.refreshed_at).toLocaleDateString()}</span>` : '';
   info.innerHTML = `
-    <b>Email</b><span>${lead.email || '—'}</span>
+    <b>Email</b><span>${lead.email || '—'} <span class="eq ${q}" title="${escapeHtml(qReason)}">${q.toUpperCase()}</span></span>
+    <b>Quality</b><span style="font-size:.8em;color:#666">${qReason ? escapeHtml(qReason) : '—'}</span>
     <b>LinkedIn</b><span>${lead.linkedin_url ? `<a href="${lead.linkedin_url}" target="_blank">${lead.linkedin_url}</a>` : '—'}</span>
-    <b>Segment</b><span>${lead.segment || '—'}</span>
+    <b>Segment</b><span>${lead.segment || '—'}${refreshed}</span>
     <b>Status</b><span>${lead.status}</span>
   `;
+  document.getElementById('d-refresh-status').textContent = '';
 
   if (lead.email_subject || lead.email_body) {
     document.getElementById('d-output').style.display = 'block';
@@ -304,6 +433,54 @@ async function generate() {
   }
 }
 
+async function refreshProfile() {
+  if (!currentId) return;
+  const btn = document.getElementById('d-refresh-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="border-top-color:#1a73e8;border-color:#1a73e8 transparent #1a73e8 #1a73e8"></span>Refreshing…';
+  document.getElementById('d-refresh-status').textContent = '';
+  try {
+    const r = await api(`/tdnet/leads/${currentId}/refresh-profile`);
+    if (r.error) { alert(r.error); return; }
+    const changed = (r.changes || []).join(', ') || 'no changes';
+    document.getElementById('d-refresh-status').textContent = '✓ Updated: ' + changed;
+    toast('Refreshed');
+    // Reopen drawer with fresh data
+    await openDrawer(currentId);
+  } catch (e) {
+    alert('Refresh failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+async function refindEmail() {
+  if (!currentId) return;
+  const btn = document.getElementById('d-refind-btn');
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="border-top-color:#1a73e8;border-color:#1a73e8 transparent #1a73e8 #1a73e8"></span>Finding…';
+  document.getElementById('d-refresh-status').textContent = '';
+  try {
+    const r = await api(`/tdnet/leads/${currentId}/refind-email`);
+    if (r.error) { alert(r.error); return; }
+    if (!r.ok) {
+      document.getElementById('d-refresh-status').textContent = '✗ ' + (r.reason || 'No email found');
+      return;
+    }
+    document.getElementById('d-refresh-status').textContent = `✓ New email: ${r.email} (${r.email_quality})`;
+    toast('Email updated');
+    await openDrawer(currentId);
+  } catch (e) {
+    alert('Re-find failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
 async function regenBody() {
   if (!currentId) return;
   const subject = document.getElementById('d-subject').value;
@@ -332,17 +509,31 @@ async function markSkipped() {
   setTimeout(()=>location.reload(), 600);
 }
 
+function openSourceModal() {
+  document.getElementById('src-bg').classList.add('open');
+  document.getElementById('src-modal').style.display = 'block';
+}
+function closeSourceModal() {
+  document.getElementById('src-bg').classList.remove('open');
+  document.getElementById('src-modal').style.display = 'none';
+}
+
 async function loadMore() {
-  const btn = document.getElementById('load-more-btn');
+  const country = document.getElementById('src-country').value;
+  const count = parseInt(document.getElementById('src-count').value, 10) || 10;
+  const btn = document.getElementById('src-go');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Sourcing 10 leads…';
+  btn.innerHTML = '<span class="spinner"></span>Sourcing…';
   try {
-    await api('/tdnet/source', {body:{count: 10}});
+    const body = {count};
+    if (country) body.country = country;
+    const r = await api('/tdnet/source', {body});
+    if (r.error) { alert(r.error); btn.disabled=false; btn.textContent='Source leads'; return; }
     location.reload();
   } catch (e) {
     alert('Source failed: ' + e.message);
     btn.disabled = false;
-    btn.textContent = '+ Load 10 leads';
+    btn.textContent = 'Source leads';
   }
 }
 
@@ -350,6 +541,25 @@ async function loadMore() {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeDrawer();
 });
+
+// Inline status dropdown on rows
+async function setStatus(sel) {
+  const id = sel.dataset.id;
+  const newStatus = sel.value;
+  // Update visual
+  sel.className = 'status-select status-' + newStatus;
+  try {
+    const r = await api(`/tdnet/leads/${id}/status`, {body:{status: newStatus}});
+    if (r.error) { alert(r.error); return; }
+    toast('Status: ' + newStatus);
+    // Refresh row class (sent/skipped row tinting)
+    const tr = sel.closest('tr');
+    tr.classList.toggle('is-sent', newStatus === 'sent');
+    tr.classList.toggle('is-skipped', newStatus === 'skipped');
+  } catch (e) {
+    alert('Update failed: ' + e.message);
+  }
+}
 </script>
 
 </body>

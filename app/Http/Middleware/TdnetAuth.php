@@ -10,26 +10,18 @@ class TdnetAuth
 {
     public function handle(Request $request, Closure $next): Response
     {
-        $expected = env('TDNET_DASHBOARD_PASSWORD');
-
-        if (!$expected) {
-            // No password configured: deny all (safe default)
-            abort(503, 'TDNET_DASHBOARD_PASSWORD not set in .env');
-        }
-
-        if ($request->session()->get('tdnet_auth') === $expected) {
+        $email = $request->session()->get('tdnet_email');
+        if ($email && self::isAllowed($email)) {
             return $next($request);
         }
 
-        if ($request->isMethod('post') && $request->input('password') === $expected) {
-            $request->session()->put('tdnet_auth', $expected);
-            return redirect('/tdnet');
-        }
+        $flashError = $request->session()->pull('tdnet_login_error');
+        return response()->view('tdnet.login', ['error' => $flashError]);
+    }
 
-        if ($request->isMethod('post') && $request->input('password')) {
-            return response()->view('tdnet.login', ['error' => 'Wrong password.'], 401);
-        }
-
-        return response()->view('tdnet.login', ['error' => null]);
+    public static function isAllowed(string $email): bool
+    {
+        $list = array_filter(array_map('trim', explode(',', strtolower((string) env('TDNET_ALLOWED_EMAILS', '')))));
+        return in_array(strtolower($email), $list, true);
     }
 }
