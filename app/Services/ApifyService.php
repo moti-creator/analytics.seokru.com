@@ -28,13 +28,15 @@ class ApifyService
      */
     public function runSync(string $actorId, array $input, int $timeoutSec = 300): array
     {
-        $url = "https://api.apify.com/v2/acts/{$actorId}/run-sync-get-dataset-items";
+        // Apify API requires "username~actor" format in URL path, not "username/actor"
+        $actorPath = str_replace('/', '~', $actorId);
+        $url = "https://api.apify.com/v2/acts/{$actorPath}/run-sync-get-dataset-items";
 
         $resp = Http::timeout($timeoutSec)
             ->withHeaders(['Authorization' => "Bearer {$this->token}"])
             ->post($url, $input);
 
-        if (!$resp->ok()) {
+        if (!$resp->successful()) {
             Log::warning('Apify run failed', ['actor' => $actorId, 'status' => $resp->status(), 'body' => substr($resp->body(), 0, 500)]);
             return [];
         }
