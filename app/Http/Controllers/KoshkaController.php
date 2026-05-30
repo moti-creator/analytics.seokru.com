@@ -228,6 +228,40 @@ class KoshkaController extends Controller
         return response($html, 200, ['Content-Type' => 'text/html; charset=utf-8']);
     }
 
+    // ---------- LEADS ----------
+
+    public function leads(Request $request)
+    {
+        $meta = new MetaService();
+        if (!$meta->configured()) {
+            return view('koshka.leads', [
+                'leads' => [], 'error' => 'META_ACCESS_TOKEN לא מוגדר.',
+                'userEmail' => session('koshka_email'),
+                'pageId' => null, 'lastLeadTs' => null,
+            ]);
+        }
+        $pageId = (string) env('META_KOSHKA_PAGE_ID', '1931146250501862');
+
+        // JSON polling endpoint for auto-refresh
+        if ($request->query('format') === 'json') {
+            $leads = $meta->pageRecentLeads($pageId, 50);
+            return response()->json([
+                'count' => count($leads),
+                'leads' => array_slice($leads, 0, 100),
+                'fetched_at' => now()->toIso8601String(),
+            ]);
+        }
+
+        $leads = $meta->pageRecentLeads($pageId, 50);
+        return view('koshka.leads', [
+            'leads' => $leads,
+            'pageId' => $pageId,
+            'lastLeadTs' => $leads[0]['created_time'] ?? null,
+            'userEmail' => session('koshka_email'),
+            'error' => null,
+        ]);
+    }
+
     public function adsetSchedule(Request $request, string $id)
     {
         $request->validate(['start_time' => 'nullable|date', 'end_time' => 'nullable|date']);

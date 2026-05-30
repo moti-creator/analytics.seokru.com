@@ -75,6 +75,9 @@ Route::middleware(['koshka.auth'])->group(function () {
     // Ad preview
     Route::get('/koshka/adset/{id}/ads', [\App\Http\Controllers\KoshkaController::class, 'adsetAds']);
     Route::get('/koshka/ad/{id}/preview', [\App\Http\Controllers\KoshkaController::class, 'adPreview']);
+
+    // Leads viewer
+    Route::get('/koshka/leads', [\App\Http\Controllers\KoshkaController::class, 'leads'])->name('koshka.leads');
 });
 
 // TDNet outreach dashboard — Google OAuth gated (allowlist)

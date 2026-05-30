@@ -185,6 +185,11 @@ body{font-family:system-ui,-apple-system,sans-serif;background:#f0f2f5;color:#1c
 {{-- QUICK ACTIONS --}}
 <div class="section-h">⚡ פעולות</div>
 <div class="quick">
+  <a href="/koshka/leads">
+    <span class="qi">📥</span>
+    <span class="qmain">לידים חדשים <span class="qsub">רענון אוטומטי + התראה לליד חדש</span></span>
+    <span class="qarrow">←</span>
+  </a>
   <a href="/koshka/all">
     <span class="qi">📋</span>
     <span class="qmain">כל הקמפיינים <span class="qsub">{{ $activeCount }} פעילים · {{ $campaignCount }} סה״כ</span></span>
