@@ -17,3 +17,28 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+
+# Secrets & credentials
+*.local.*
+*-keys
+*creds*
+*-env.txt
+*.env
+!.env.example
+gsc*.json
+.secrets/*
+!.secrets/.gitkeep
+!.secrets/README.md
+
+# Claude Code
+.claude/settings.local.json
+
+# Temp & session artifacts
+tmp_*.html
+tmp_*.txt
+tmp_*.json
+SESSION_SUMMARY.md
+experiments/
+
+# Stray binaries
+composer2
