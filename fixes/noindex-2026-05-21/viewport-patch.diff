@@ -1,0 +1,29 @@
+Target: resources/views/landing.blade.php (public-facing master entry)
+
+Note: this project has NO single master layout (each blade defines its own <head>).
+landing.blade.php is the highest-traffic public page. Apply the same one-line
+insert to every other blade listed below that lacks a viewport meta tag:
+
+  - resources/views/ask.blade.php
+  - resources/views/clarify.blade.php
+  - resources/views/connect.blade.php
+  - resources/views/dashboard.blade.php
+  - resources/views/report.blade.php
+  - resources/views/telegram-connected.blade.php
+  - resources/views/boost/form.blade.php
+  - resources/views/boost/show.blade.php
+  - resources/views/legal/layout.blade.php
+
+Files that ALREADY contain viewport (skip): welcome.blade.php, tdnet/index.blade.php,
+tdnet/login.blade.php.
+
+--- a/resources/views/landing.blade.php
++++ b/resources/views/landing.blade.php
+@@ -1,6 +1,7 @@
+ <!doctype html>
+ <html lang="en">
+ <head>
+ <meta charset="utf-8">
++<meta name="viewport" content="width=device-width, initial-scale=1">
+ <title>SEOKRU Analytics — GA4 + Search Console in one plain-English report</title>
+ <meta name="description" content="Ask any question about your site's traffic. We join Google Analytics 4 with Search Console data and answer in plain English. In 60 seconds.">

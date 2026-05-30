@@ -42,3 +42,4 @@ experiments/
 
 # Stray binaries
 composer2
+.claude/worktrees/

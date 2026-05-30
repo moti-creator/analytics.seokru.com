@@ -15,7 +15,7 @@ Laravel SaaS pilot. GA4 + GSC → plain-English reports via LLM. Free pilot/MVP 
 
 ## Paths
 
-- **Local dev**: `C:/Users/Lenovo/Documents/Claude/Projects/seokru/analytics_pilot`
+- **Local dev**: `C:/Users/Lenovo/Documents/Claude/Projects/analytics.seokru.com` (moved from seokru/analytics_pilot 2026-05-10)
 - **Cloudways prod**: `/home/325771.cloudwaysapps.com/qzyqpaznzq/public_html`
 - **Domain**: analytics.seokru.com
 - **Repo**: https://github.com/moti-creator/analytics.seokru.com
@@ -67,6 +67,23 @@ Cross-platform (GA4 × GSC):
 Single-source:
 - `content_decay`, `striking_distance`, `conversion_leak`, `anomaly`, `brand_split`
 - `keyword_rankings` (GSC web), `keyword_rankings_news` (GSC news) — pivot table, landscape A4 PDF
+- `llm_traffic`, `new_referrers` — GA4 referral-based
+
+### Boost Visibility (`/boost`)
+
+Submits a URL to indexing channels + creates persistent backlinks. Orchestrator: `BoostService`. Channels:
+- `IndexNowService` — pings `api.indexnow.org` + Bing/Yandex/Naver/Seznam/Yep. Per-host key generated and cached; user installs at `https://{host}/{key}.txt`.
+- `GoogleService::indexingApiNotify` — Indexing API. Requires user OAuth re-consent for `indexing` scope.
+- `WaybackService`, `ArchiveTodayService` — persistent archive snapshots (real backlinks).
+- `WebSubService` — auto-discovers feed, pings pubsubhubbub.
+- `GistService` (env `GITHUB_GIST_TOKEN`), `BlueskyService` (env `BLUESKY_HANDLE`+`BLUESKY_APP_PASSWORD`), `TelegramService::postToPublicChannel` (env `TELEGRAM_BOOST_CHANNEL`) — env-gated, silently skip if not configured.
+- Reddit slot reserved (DB column + disabled checkbox).
+
+Rate limits: 10 URLs / 7d per user; 5 / 24h per domain. Persisted in `boost_submissions` table.
+
+Follow-up tracker: `boost:followup` artisan command (hourly). Re-runs URL Inspection at 24h/72h/7d. **Cron not yet configured on Cloudways.**
+
+Round 1 experiment (2026-05-08) showed IndexNow + Indexing API + Wayback achieves 0% indexing in 1h on www.micro-movement.com. Real backlinks (Gist/Bluesky/Telegram) added in Round 2 — awaiting credentials. See `SESSION_SUMMARY.md`.
 
 ### Key routes
 
@@ -104,9 +121,20 @@ Single-source:
 - Declined (do not suggest): Google Ads integration, WhatsApp bot, agency white-label
 - Tagline: "GA4 + Search Console in one plain-English report"
 
+### Cloudways deploy gotcha
+
+`master_vultr_ath` SSH user can't write to existing files (owned by `qzyqpaznzq`, `-rw-r--r--`) but parent dirs are group-writable. Workaround: `curl` to `/tmp`, `rm -f` target, `mv` from `/tmp`. GitHub raw caches by SHA — resolve current SHA via `https://api.github.com/repos/.../commits/main` to bust.
+
+`master_vultr_ath` cannot run `git pull` due to FETCH_HEAD perms. File-by-file curl+mv pattern is the only working deploy path without Cloudways UI.
+
 ## Known pending
 
 - Deploy Telegram bot (code ready, needs BotFather + env vars)
+- Reddit OAuth — Reddit "Create app" form rejected user (Responsible Builder Policy). Reddit Seed channel disabled.
+- Round 2 env vars on prod: `GITHUB_GIST_TOKEN`, `BLUESKY_HANDLE`, `BLUESKY_APP_PASSWORD`, `TELEGRAM_BOOST_CHANNEL`.
+- Cloudways cron for `boost:followup` (user declined initially).
+- Round 1 T+24h check (auto-runs in `experiments/runs/auto_check_continue_*.log`).
+- Re-run experiment with Round 2 channels once env vars set.
 - Rotate exposed Groq key
 - Sample/demo report without login
 - Weekly scheduled reports (cron)
