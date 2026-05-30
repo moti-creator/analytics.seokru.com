@@ -27,17 +27,19 @@ class MetaAgentService
 
         $toolCalls = [];
 
+        $history = array_map(fn($m) => ['role' => $m['role'], 'content' => $m['content']], $messages);
+
         for ($i = 0; $i < self::MAX_ITERATIONS; $i++) {
             $resp = Http::withHeaders([
-                'x-api-key' => config('services.anthropic.key'),
+                'x-api-key'         => config('services.anthropic.key'),
                 'anthropic-version' => '2023-06-01',
-                'content-type' => 'application/json',
+                'content-type'      => 'application/json',
             ])->timeout(60)->post('https://api.anthropic.com/v1/messages', [
-                'model' => config('services.anthropic.model', 'claude-sonnet-4-6'),
-                'max_tokens' => 4096,
-                'system' => $this->systemPrompt(),
-                'messages' => $messages,
-                'tools' => $this->toolDefs(),
+                'model'      => config('services.anthropic.model', 'claude-haiku-4-5'),
+                'max_tokens' => 2048,
+                'system'     => $this->systemPrompt(),
+                'messages'   => $history,
+                'tools'      => $this->toolDefs(),
             ]);
 
             if (!$resp->ok()) {
@@ -45,44 +47,29 @@ class MetaAgentService
                 return ['reply' => 'שגיאת API. נסה שוב.', 'tool_calls' => $toolCalls];
             }
 
-            $json = $resp->json();
+            $json      = $resp->json();
             $stopReason = $json['stop_reason'] ?? 'end_turn';
 
             if ($stopReason === 'tool_use') {
-                // Extract all tool_use blocks from content
                 $assistantContent = $json['content'] ?? [];
-                $messages[] = ['role' => 'assistant', 'content' => $assistantContent];
+                $history[] = ['role' => 'assistant', 'content' => $assistantContent];
 
-                $toolResultContent = [];
+                $toolResults = [];
                 foreach ($assistantContent as $block) {
                     if (($block['type'] ?? '') !== 'tool_use') continue;
-
-                    $toolId = $block['id'];
-                    $toolName = $block['name'];
-                    $toolInput = $block['input'] ?? [];
-
-                    $result = $this->executeTool($toolName, $toolInput);
-                    $toolCalls[] = ['tool' => $toolName, 'args' => $toolInput];
-
-                    $toolResultContent[] = [
-                        'type' => 'tool_result',
-                        'tool_use_id' => $toolId,
-                        'content' => json_encode($result),
-                    ];
+                    $result = $this->executeTool($block['name'], $block['input'] ?? []);
+                    $toolCalls[] = ['tool' => $block['name'], 'args' => $block['input'] ?? []];
+                    $toolResults[] = ['type' => 'tool_result', 'tool_use_id' => $block['id'], 'content' => json_encode($result)];
                 }
 
-                $messages[] = ['role' => 'user', 'content' => $toolResultContent];
+                $history[] = ['role' => 'user', 'content' => $toolResults];
                 continue;
             }
 
-            // end_turn — extract final text
             $text = '';
             foreach ($json['content'] ?? [] as $block) {
-                if (($block['type'] ?? '') === 'text') {
-                    $text .= $block['text'];
-                }
+                if (($block['type'] ?? '') === 'text') $text .= $block['text'];
             }
-
             return ['reply' => trim($text), 'tool_calls' => $toolCalls];
         }
 
@@ -235,90 +222,41 @@ PROMPT;
 
     protected function toolDefs(): array
     {
-        return [
-            [
-                'name' => 'list_campaigns',
-                'description' => 'List all Meta campaigns in the account. Returns id, name, status, objective, budget.',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'status' => [
-                            'type' => 'string',
-                            'description' => 'Filter by status: ACTIVE, PAUSED, ARCHIVED. Omit for all.',
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'name' => 'get_insights',
-                'description' => 'Get performance insights (spend, impressions, clicks, CTR, CPC, leads/actions) for a campaign or all campaigns.',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'campaign_id' => [
-                            'type' => 'string',
-                            'description' => 'Specific campaign ID. Omit to get account-level insights.',
-                        ],
-                        'date_preset' => [
-                            'type' => 'string',
-                            'description' => 'Date range: today, yesterday, last_3d, last_7d, last_14d, last_30d, last_90d, last_month, maximum. Default: last_30d.',
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'name' => 'list_adsets',
-                'description' => 'List ad sets for a specific campaign or all ad sets in the account.',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'campaign_id' => [
-                            'type' => 'string',
-                            'description' => 'Campaign ID to filter. Omit for all ad sets.',
-                        ],
-                    ],
-                ],
-            ],
-            [
-                'name' => 'update_budget',
-                'description' => 'Update the daily or lifetime budget of an ad set. Budget is in ILS (shekels — will be converted to agorot internally).',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'adset_id' => ['type' => 'string', 'description' => 'Ad set ID to update.'],
-                        'amount' => ['type' => 'number', 'description' => 'Budget amount in ILS (shekels).'],
-                        'type' => ['type' => 'string', 'description' => 'Budget type: daily or lifetime. Default: daily.'],
-                    ],
-                    'required' => ['adset_id', 'amount'],
-                ],
-            ],
-            [
-                'name' => 'set_campaign_status',
-                'description' => 'Activate, pause, or archive a campaign.',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'campaign_id' => ['type' => 'string', 'description' => 'Campaign ID.'],
-                        'status' => ['type' => 'string', 'description' => 'ACTIVE, PAUSED, or ARCHIVED.'],
-                    ],
-                    'required' => ['campaign_id', 'status'],
-                ],
-            ],
-            [
-                'name' => 'create_campaign',
-                'description' => 'Create a new campaign (always PAUSED). Use only after explicit user confirmation.',
-                'input_schema' => [
-                    'type' => 'object',
-                    'properties' => [
-                        'name' => ['type' => 'string', 'description' => 'Campaign name.'],
-                        'objective' => [
-                            'type' => 'string',
-                            'description' => 'OUTCOME_LEADS, OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT, OUTCOME_AWARENESS, OUTCOME_SALES.',
-                        ],
-                    ],
-                    'required' => ['name'],
-                ],
-            ],
+        $defs = [
+            ['name' => 'list_campaigns',    'description' => 'List all Meta campaigns. Returns id, name, status, objective, budget.',
+             'parameters' => ['type' => 'object', 'properties' => [
+                 'status' => ['type' => 'string', 'description' => 'Filter: ACTIVE, PAUSED, ARCHIVED. Omit for all.'],
+             ]]],
+            ['name' => 'get_insights',      'description' => 'Get spend, impressions, clicks, CTR, CPC, leads for a campaign or all campaigns.',
+             'parameters' => ['type' => 'object', 'properties' => [
+                 'campaign_id' => ['type' => 'string', 'description' => 'Campaign ID. Omit for account-level.'],
+                 'date_preset' => ['type' => 'string', 'description' => 'last_7d, last_14d, last_30d, last_90d, last_month, maximum. Default: last_30d.'],
+             ]]],
+            ['name' => 'list_adsets',       'description' => 'List ad sets for a campaign or all ad sets.',
+             'parameters' => ['type' => 'object', 'properties' => [
+                 'campaign_id' => ['type' => 'string', 'description' => 'Campaign ID. Omit for all.'],
+             ]]],
+            ['name' => 'update_budget',     'description' => 'Update daily or lifetime budget of an ad set. Amount in ILS (shekels).',
+             'parameters' => ['type' => 'object', 'properties' => [
+                 'adset_id' => ['type' => 'string'],
+                 'amount'   => ['type' => 'number', 'description' => 'ILS shekels.'],
+                 'type'     => ['type' => 'string', 'description' => 'daily or lifetime.'],
+             ], 'required' => ['adset_id', 'amount']]],
+            ['name' => 'set_campaign_status', 'description' => 'Activate, pause, or archive a campaign.',
+             'parameters' => ['type' => 'object', 'properties' => [
+                 'campaign_id' => ['type' => 'string'],
+                 'status'      => ['type' => 'string', 'description' => 'ACTIVE, PAUSED, or ARCHIVED.'],
+             ], 'required' => ['campaign_id', 'status']]],
+            ['name' => 'create_campaign',   'description' => 'Create a new PAUSED campaign. Only after explicit confirmation.',
+             'parameters' => ['type' => 'object', 'properties' => [
+                 'name'      => ['type' => 'string'],
+                 'objective' => ['type' => 'string', 'description' => 'OUTCOME_LEADS, OUTCOME_TRAFFIC, OUTCOME_ENGAGEMENT, OUTCOME_AWARENESS, OUTCOME_SALES.'],
+             ], 'required' => ['name']]],
         ];
+
+        return array_map(fn($d) => array_merge(
+            ['name' => $d['name'], 'description' => $d['description']],
+            ['input_schema' => $d['parameters']]
+        ), $defs);
     }
 }

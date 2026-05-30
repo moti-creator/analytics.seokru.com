@@ -2,234 +2,201 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="csrf-token" content="{{ csrf_token() }}">
-<title>ניהול קמפיינים — קושקה יוגה</title>
+<meta name="theme-color" content="#1a73e8">
+<title>קושקה יוגה — היום</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{height:100%;font-family:system-ui,sans-serif;background:#f0f2f5;color:#1c1e21}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f0f2f5;color:#1c1e21;line-height:1.5;font-size:15px}
 
-/* layout */
-.app{display:flex;flex-direction:column;height:100vh;max-width:800px;margin:0 auto}
+.topbar{background:#fff;border-bottom:1px solid #e5e7eb;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10}
+.brand{font-weight:700;font-size:1rem;display:flex;align-items:center;gap:8px}
+.brand .emoji{font-size:1.3rem}
+.user{font-size:.78rem;color:#666;display:flex;align-items:center;gap:8px}
+.user button{color:#1a73e8;background:none;border:none;cursor:pointer;font-family:inherit;font-size:.78rem}
 
-/* topbar */
-.topbar{background:#fff;border-bottom:1px solid #ddd;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.topbar .brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:1rem;color:#1a1a1a}
-.topbar .brand .emoji{font-size:1.3rem}
-.topbar .user{display:flex;align-items:center;gap:10px;font-size:.82rem;color:#888}
-.topbar .user a{color:#1a73e8;text-decoration:none}
-.topbar .user a:hover{text-decoration:underline}
+.wrap{max-width:640px;margin:0 auto;padding:14px}
 
-/* messages area */
-.messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.flash{background:#d4edda;color:#155724;border:1px solid #c3e6cb;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:.88rem}
+.error{background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;border-radius:10px;padding:11px 14px;margin-bottom:14px;font-size:.88rem}
 
-/* message bubbles */
-.msg{display:flex;gap:10px;align-items:flex-end;max-width:85%}
-.msg.user{align-self:flex-start;flex-direction:row-reverse}
-.msg.assistant{align-self:flex-end}
-.bubble{padding:10px 14px;border-radius:16px;font-size:.92rem;line-height:1.55;white-space:pre-wrap;word-wrap:break-word}
-.msg.user .bubble{background:#1a73e8;color:#fff;border-bottom-right-radius:4px}
-.msg.assistant .bubble{background:#fff;color:#1c1e21;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,.10)}
-.msg.assistant .bubble table{border-collapse:collapse;width:100%;font-size:.85rem;margin:.6em 0}
-.msg.assistant .bubble th,.msg.assistant .bubble td{border:1px solid #e5e7eb;padding:5px 8px;text-align:right}
-.msg.assistant .bubble th{background:#f9fafb;font-weight:600}
-.msg.assistant .bubble h2,.msg.assistant .bubble h3{font-size:.95rem;margin:.6em 0 .3em;color:#1a73e8}
-.msg.assistant .bubble ul,.msg.assistant .bubble ol{padding-right:1.4em;margin:.4em 0}
+/* Hero: today */
+.hero{background:linear-gradient(135deg,#1a73e8 0%,#3b82f6 100%);color:#fff;border-radius:18px;padding:22px 20px;margin-bottom:18px;box-shadow:0 4px 20px rgba(26,115,232,.25)}
+.hero .label{font-size:.78rem;opacity:.85;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px}
+.hero .big{font-size:2.6rem;font-weight:800;line-height:1.1;margin-bottom:6px;letter-spacing:-.02em}
+.hero .sub{font-size:.92rem;opacity:.95}
+.hero .week-row{display:flex;gap:18px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.2);font-size:.85rem}
+.hero .week-row > div{flex:1}
+.hero .week-row .k{font-size:.7rem;opacity:.8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.hero .week-row .v{font-weight:700;font-size:1.05rem}
+.hero .delta{font-size:.74rem;opacity:.85;margin-top:1px}
 
-/* tool indicator */
-.tool-indicator{font-size:.78rem;color:#888;display:flex;align-items:center;gap:5px;padding:4px 0;align-self:flex-end}
-.tool-indicator .dot{width:6px;height:6px;border-radius:50%;background:#1a73e8;animation:pulse 1.2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+/* Section header */
+.section-h{font-size:.82rem;color:#666;text-transform:uppercase;letter-spacing:.05em;margin:18px 4px 10px;font-weight:600;display:flex;align-items:center;gap:6px}
 
-/* typing indicator */
-.typing{align-self:flex-end}
-.typing .bubble{background:#fff;box-shadow:0 1px 4px rgba(0,0,0,.10);padding:12px 16px}
-.typing-dots{display:flex;gap:4px;align-items:center}
-.typing-dots span{width:7px;height:7px;border-radius:50%;background:#bbb;animation:bounce .9s infinite}
-.typing-dots span:nth-child(2){animation-delay:.15s}
-.typing-dots span:nth-child(3){animation-delay:.3s}
-@keyframes bounce{0%,60%,100%{transform:translateY(0)}30%{transform:translateY(-6px)}}
+/* Overview strip */
+.overview{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.ov-item{background:#fff;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:.88rem;box-shadow:0 1px 2px rgba(0,0,0,.04);border-right:3px solid #ddd}
+.ov-item.ov-good{border-right-color:#28a745;background:#f6fdf8}
+.ov-item.ov-bad{border-right-color:#dc3545;background:#fff8f8}
+.ov-item.ov-neutral{border-right-color:#6c757d}
+.ov-icon{font-size:1.2rem;flex-shrink:0}
+.ov-text{color:#1c1e21;line-height:1.4}
 
-/* input bar */
-.input-bar{background:#fff;border-top:1px solid #ddd;padding:12px 16px;display:flex;gap:10px;align-items:flex-end;flex-shrink:0}
-#input{flex:1;border:1px solid #ddd;border-radius:20px;padding:10px 16px;font-size:.92rem;font-family:inherit;resize:none;min-height:44px;max-height:140px;line-height:1.5;outline:none;overflow-y:auto;direction:rtl}
-#input:focus{border-color:#1a73e8}
-#send-btn{background:#1a73e8;color:#fff;border:none;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;transition:background .15s}
-#send-btn:hover:not(:disabled){background:#1558b0}
-#send-btn:disabled{background:#bbb;cursor:default}
+/* Insight card */
+.card{background:#fff;border-radius:14px;padding:16px 16px 12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);border-right:4px solid #ddd}
+.card.danger{border-right-color:#dc3545}
+.card.warning{border-right-color:#ff9800}
+.card.info{border-right-color:#1a73e8}
+.card.success{border-right-color:#28a745}
 
-/* welcome message */
-.welcome{text-align:center;padding:32px 16px;color:#888}
-.welcome .emoji{font-size:2.5rem;margin-bottom:.5em}
-.welcome h2{font-size:1.1rem;color:#444;margin-bottom:.3em}
-.welcome p{font-size:.88rem;line-height:1.6}
-.suggestions{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:1.2em}
-.suggestion{background:#fff;border:1px solid #ddd;border-radius:20px;padding:7px 14px;font-size:.82rem;cursor:pointer;color:#1a73e8;transition:all .15s}
-.suggestion:hover{background:#f0f4ff;border-color:#1a73e8}
+.card-head{display:flex;gap:10px;align-items:flex-start;margin-bottom:10px}
+.card-icon{font-size:1.6rem;line-height:1}
+.card-body{flex:1;min-width:0}
+.card-title{font-weight:700;font-size:.98rem;color:#1a1a1a;margin-bottom:4px;word-wrap:break-word}
+.card-detail{color:#555;font-size:.88rem;line-height:1.45}
+
+.card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.act-btn{padding:9px 14px;border-radius:10px;border:1px solid #ddd;background:#fff;font-size:.86rem;cursor:pointer;font-family:inherit;color:#1c1e21;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;justify-content:center;min-height:38px}
+.act-btn:hover{background:#f0f4ff;border-color:#1a73e8;color:#1a73e8}
+.act-btn.primary{background:#1a73e8;color:#fff;border-color:#1a73e8}
+.act-btn.primary:hover{background:#1558b0;color:#fff}
+.act-btn.ghost{border:none;color:#888;background:transparent}
+.act-btn.ghost:hover{background:#f0f0f0;color:#555}
+
+/* Empty state */
+.empty{text-align:center;padding:50px 20px;color:#888;background:#fff;border-radius:14px}
+.empty .big-icon{font-size:3rem;margin-bottom:12px}
+.empty h3{color:#444;font-size:1.05rem;font-weight:600;margin-bottom:6px}
+.empty p{font-size:.88rem}
+
+/* Quick actions */
+.quick{display:grid;grid-template-columns:1fr;gap:8px;margin-top:8px}
+.quick a{background:#fff;border-radius:12px;padding:14px 16px;text-decoration:none;color:#1c1e21;display:flex;align-items:center;gap:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);font-size:.92rem;font-weight:500;transition:transform .12s,box-shadow .12s}
+.quick a:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(0,0,0,.10)}
+.quick a .qi{font-size:1.4rem}
+.quick a .qsub{font-size:.78rem;color:#888;font-weight:400;display:block;margin-top:1px}
+.quick a .qmain{flex:1}
+.quick a .qarrow{color:#ccc;font-size:1.1rem}
+
+@media(min-width:500px){
+  .quick{grid-template-columns:1fr 1fr}
+}
 </style>
 </head>
 <body>
-<div class="app">
-  <div class="topbar">
-    <div class="brand">
-      <span class="emoji">🧘</span>
-      <span>קושקה יוגה — ניהול קמפיינים</span>
-    </div>
-    <div class="user">
-      <span>{{ $userEmail }}</span>
-      <form method="POST" action="/koshka/logout" style="display:inline">
-        @csrf
-        <button type="submit" style="background:none;border:none;cursor:pointer;color:#1a73e8;font-size:.82rem;font-family:inherit;padding:0">יציאה</button>
-      </form>
-    </div>
-  </div>
 
-  <div class="messages" id="messages">
-    <div class="welcome" id="welcome">
-      <div class="emoji">📊</div>
-      <h2>שלום, {{ $userName ?: $userEmail }}!</h2>
-      <p>אני כאן לעזור לך לנהל את קמפיינות המטא של הסטודיו.<br>שאלי אותי כל שאלה בעברית.</p>
-      <div class="suggestions">
-        <span class="suggestion" onclick="sendSuggestion(this)">מה מצב הקמפיינים הפעילים?</span>
-        <span class="suggestion" onclick="sendSuggestion(this)">כמה הוצאנו החודש?</span>
-        <span class="suggestion" onclick="sendSuggestion(this)">איזה קמפיין הכי טוב ב-30 יום האחרונים?</span>
-        <span class="suggestion" onclick="sendSuggestion(this)">תציגי לי את כל הקמפיינים עם ה-CPL שלהם</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="input-bar">
-    <textarea id="input" placeholder="כתבי שאלה..." rows="1" onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-    <button id="send-btn" onclick="sendMessage()" title="שלח">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-      </svg>
-    </button>
+<div class="topbar">
+  <div class="brand"><span class="emoji">🧘</span>קושקה</div>
+  <div class="user">
+    <span>{{ $userEmail }}</span>
+    <form method="POST" action="/koshka/logout" style="display:inline">@csrf<button>יציאה</button></form>
   </div>
 </div>
 
-<script>
-const messagesEl = document.getElementById('messages');
-const inputEl = document.getElementById('input');
-const sendBtn = document.getElementById('send-btn');
-const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+<div class="wrap">
 
-// conversation history sent to backend on each request
-let history = [];
+@if($flash ?? null)<div class="flash">✓ {{ $flash }}</div>@endif
+@if($error ?? null)<div class="error">{{ $error }}</div>@endif
 
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 140) + 'px';
-}
+{{-- HERO --}}
+@if($today)
+<div class="hero">
+  <div class="label">היום</div>
+  <div class="big">₪{{ number_format($today['spend'], 0) }}</div>
+  <div class="sub">{{ $today['leads'] }} {{ $today['leads'] == 1 ? 'ליד' : 'לידים' }} · {{ $today['clicks'] }} קליקים · {{ number_format($today['impressions']) }} חשיפות</div>
 
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
-}
+  @if($week)
+  <div class="week-row">
+    <div>
+      <div class="k">השבוע</div>
+      <div class="v">₪{{ number_format($week['this']['spend'], 0) }}</div>
+      @if($week['delta']['spend'] !== null)
+        <div class="delta">{{ $week['delta']['spend'] >= 0 ? '↑' : '↓' }} {{ abs($week['delta']['spend']) }}% vs שעבר</div>
+      @endif
+    </div>
+    <div>
+      <div class="k">לידים</div>
+      <div class="v">{{ $week['this']['leads'] }}</div>
+      @if($week['delta']['leads'] !== null)
+        <div class="delta">{{ $week['delta']['leads'] >= 0 ? '↑' : '↓' }} {{ abs($week['delta']['leads']) }}% vs שעבר</div>
+      @endif
+    </div>
+    <div>
+      <div class="k">CTR</div>
+      <div class="v">{{ number_format($week['this']['ctr'], 2) }}%</div>
+    </div>
+  </div>
+  @endif
+</div>
+@endif
 
-function sendSuggestion(el) {
-  inputEl.value = el.textContent;
-  sendMessage();
-}
+{{-- OVERVIEW STRIP --}}
+@if(count($overview ?? []))
+<div class="section-h">🔍 סקירת חשבון</div>
+<div class="overview">
+  @foreach($overview as $o)
+  <div class="ov-item ov-{{ $o['tone'] }}">
+    <span class="ov-icon">{{ $o['icon'] }}</span>
+    <span class="ov-text">{{ $o['text'] }}</span>
+  </div>
+  @endforeach
+</div>
+@endif
 
-function scrollToBottom() {
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
+{{-- CARDS --}}
+@if(count($cards))
+<div class="section-h">📌 דורש החלטה ({{ count($cards) }})</div>
 
-function appendMessage(role, html, isHtml = false) {
-  const welcome = document.getElementById('welcome');
-  if (welcome) welcome.remove();
+@foreach($cards as $card)
+<div class="card {{ $card['severity'] }}">
+  <div class="card-head">
+    <div class="card-icon">{{ $card['icon'] }}</div>
+    <div class="card-body">
+      <div class="card-title">{{ $card['title'] }}</div>
+      <div class="card-detail">{{ $card['detail'] }}</div>
+    </div>
+  </div>
+  <div class="card-actions">
+    @foreach($card['actions'] as $action)
+    <form method="POST" action="/koshka/card/{{ $card['campaign']['id'] }}" style="display:inline"
+          @if(in_array($action['action'], ['pause','budget_pct']) && ($action['param'] ?? 0) <= -20)
+          onsubmit="return confirm('{{ $action['label'] }} — בטוח?')"
+          @endif>
+      @csrf
+      <input type="hidden" name="action" value="{{ $action['action'] }}">
+      @if(isset($action['param']))<input type="hidden" name="param" value="{{ $action['param'] }}">@endif
+      <button class="act-btn {{ $action['style'] ?? '' }}">{{ $action['label'] }}</button>
+    </form>
+    @endforeach
+  </div>
+</div>
+@endforeach
+@else
+<div class="section-h">📌 דורש החלטה</div>
+<div class="empty">
+  <div class="big-icon">✓</div>
+  <h3>הכל בסדר</h3>
+  <p>אין קמפיינים שדורשים החלטה כרגע.</p>
+</div>
+@endif
 
-  const div = document.createElement('div');
-  div.className = 'msg ' + role;
-  const bubble = document.createElement('div');
-  bubble.className = 'bubble';
-  if (isHtml) {
-    bubble.innerHTML = html;
-  } else {
-    bubble.textContent = html;
-  }
-  div.appendChild(bubble);
-  messagesEl.appendChild(div);
-  scrollToBottom();
-  return div;
-}
+{{-- QUICK ACTIONS --}}
+<div class="section-h">⚡ פעולות</div>
+<div class="quick">
+  <a href="/koshka/all">
+    <span class="qi">📋</span>
+    <span class="qmain">כל הקמפיינים <span class="qsub">{{ $activeCount }} פעילים · {{ $campaignCount }} סה״כ</span></span>
+    <span class="qarrow">←</span>
+  </a>
+  <a href="/koshka">
+    <span class="qi">🔄</span>
+    <span class="qmain">רענון נתונים <span class="qsub">נתונים מ-Meta עודכנו ב-cache 2 דק׳</span></span>
+    <span class="qarrow">←</span>
+  </a>
+</div>
 
-function appendTyping() {
-  const div = document.createElement('div');
-  div.className = 'msg assistant typing';
-  div.id = 'typing';
-  div.innerHTML = '<div class="bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
-  messagesEl.appendChild(div);
-  scrollToBottom();
-}
-
-function removeTyping() {
-  const t = document.getElementById('typing');
-  if (t) t.remove();
-}
-
-async function sendMessage() {
-  const text = inputEl.value.trim();
-  if (!text || sendBtn.disabled) return;
-
-  inputEl.value = '';
-  inputEl.style.height = 'auto';
-  sendBtn.disabled = true;
-
-  appendMessage('user', text);
-  history.push({ role: 'user', content: text });
-
-  appendTyping();
-
-  try {
-    const resp = await fetch('/koshka/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': csrfToken,
-        'Accept': 'application/json',
-      },
-      body: JSON.stringify({ messages: history }),
-    });
-
-    removeTyping();
-
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({ message: 'שגיאת שרת' }));
-      appendMessage('assistant', 'שגיאה: ' + (err.message || resp.status));
-      sendBtn.disabled = false;
-      return;
-    }
-
-    const data = await resp.json();
-    const reply = data.reply || '';
-
-    // Show tool activity if any
-    if (data.tool_calls?.length) {
-      const tools = data.tool_calls.map(t => t.tool).join(', ');
-      const indicator = document.createElement('div');
-      indicator.className = 'tool-indicator';
-      indicator.innerHTML = `<span class="dot"></span> שלפתי נתונים: ${tools}`;
-      messagesEl.appendChild(indicator);
-    }
-
-    appendMessage('assistant', reply, true);
-    history.push({ role: 'assistant', content: reply });
-
-  } catch (e) {
-    removeTyping();
-    appendMessage('assistant', 'שגיאת חיבור. בדקי אינטרנט ונסי שוב.');
-  }
-
-  sendBtn.disabled = false;
-  inputEl.focus();
-}
-
-inputEl.focus();
-</script>
+</div>
 </body>
 </html>

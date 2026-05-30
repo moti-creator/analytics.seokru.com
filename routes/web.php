@@ -55,7 +55,26 @@ Route::post('/koshka/logout', [\App\Http\Controllers\KoshkaController::class, 'l
 
 Route::middleware(['koshka.auth'])->group(function () {
     Route::get('/koshka', [\App\Http\Controllers\KoshkaController::class, 'index'])->name('koshka.index');
-    Route::post('/koshka/chat', [\App\Http\Controllers\KoshkaController::class, 'chat'])->name('koshka.chat');
+    Route::get('/koshka/all', [\App\Http\Controllers\KoshkaController::class, 'all'])->name('koshka.all');
+
+    // Insight card action (one endpoint, handles pause/snooze/budget_pct/budget_add)
+    Route::post('/koshka/card/{id}', [\App\Http\Controllers\KoshkaController::class, 'cardAction']);
+
+    // Campaign actions
+    Route::post('/koshka/campaign/{id}/status',    [\App\Http\Controllers\KoshkaController::class, 'campaignStatus']);
+    Route::post('/koshka/campaign/{id}/rename',    [\App\Http\Controllers\KoshkaController::class, 'campaignRename']);
+    Route::post('/koshka/campaign/{id}/duplicate', [\App\Http\Controllers\KoshkaController::class, 'campaignDuplicate']);
+    Route::post('/koshka/campaigns/pause-all',     [\App\Http\Controllers\KoshkaController::class, 'bulkPause']);
+    Route::post('/koshka/campaigns/activate-all',  [\App\Http\Controllers\KoshkaController::class, 'bulkActivate']);
+
+    // Ad set actions
+    Route::post('/koshka/adset/{id}/status',   [\App\Http\Controllers\KoshkaController::class, 'adsetStatus']);
+    Route::post('/koshka/adset/{id}/budget',   [\App\Http\Controllers\KoshkaController::class, 'adsetBudget']);
+    Route::post('/koshka/adset/{id}/schedule', [\App\Http\Controllers\KoshkaController::class, 'adsetSchedule']);
+
+    // Ad preview
+    Route::get('/koshka/adset/{id}/ads', [\App\Http\Controllers\KoshkaController::class, 'adsetAds']);
+    Route::get('/koshka/ad/{id}/preview', [\App\Http\Controllers\KoshkaController::class, 'adPreview']);
 });
 
 // TDNet outreach dashboard — Google OAuth gated (allowlist)
