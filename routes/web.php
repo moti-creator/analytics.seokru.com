@@ -29,6 +29,12 @@ Route::get('/dashboard', [ReportController::class, 'dashboard'])->name('dashboar
 Route::post('/dashboard/property', [ReportController::class, 'updateProperty'])->name('dashboard.property');
 Route::get('/generate/{type}', [ReportController::class, 'generateDirect'])->name('generate.direct');
 
+// Ben Friedman — scoped dashboard limited to the six Friedman domains
+Route::get('/bf', [\App\Http\Controllers\BfController::class, 'landing'])->name('bf.landing');
+Route::get('/bf/status', [\App\Http\Controllers\BfController::class, 'status'])->name('bf.status');
+Route::post('/bf/property', [\App\Http\Controllers\BfController::class, 'property'])->name('bf.property');
+Route::get('/bf/generate/{type}', [\App\Http\Controllers\BfController::class, 'generate'])->name('bf.generate');
+
 Route::get('/ask', [AskController::class, 'form'])->name('ask.form');
 Route::post('/ask', [AskController::class, 'run'])->name('ask.run');
 Route::get('/ask/clarify', [AskController::class, 'clarifyForm'])->name('ask.clarify');
